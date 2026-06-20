@@ -1,0 +1,16 @@
+'use strict';
+
+/** Rotas de Envios (/api/v1/shipments). */
+const { Router } = require('express');
+const { auth } = require('../../middlewares/auth');
+const controller = require('./shipment.controller');
+
+const router = Router();
+
+router.post('/quote', auth, controller.quote);
+// Apenas o vendedor do pedido (checado no service) pode criar o envio.
+router.post('/order/:orderId', auth, controller.createForOrder);
+router.post('/:id/label', auth, controller.generateLabel);
+router.get('/:id/track', auth, controller.track);
+
+module.exports = router;

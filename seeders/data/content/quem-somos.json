@@ -1,0 +1,80 @@
+{
+  "slug": "quem-somos",
+  "title": "Quem Somos",
+  "subtitle": "Somos a maior feira online do Brasil, conectando milhões de pessoas através do comércio eletrônico e democratizando o acesso ao empreendedorismo digital.",
+  "kind": "content",
+  "icon": "users",
+  "content": {
+    "header": {
+      "title": "Quem Somos",
+      "subtitle": "Somos a maior feira online do Brasil, conectando milhões de pessoas através do comércio eletrônico e democratizando o acesso ao empreendedorismo digital."
+    },
+    "mission": {
+      "title": "Nossa Missão",
+      "text": "Democratizar o e-commerce no Brasil, oferecendo oportunidades para que qualquer pessoa possa empreender e encontrar o que precisa de forma simples e segura."
+    },
+    "stats": [
+      { "number": "10M+", "label": "Clientes Ativos" },
+      { "number": "500K+", "label": "Vendedores" },
+      { "number": "50M+", "label": "Produtos" },
+      { "number": "1M+", "label": "Pedidos/Mês" }
+    ],
+    "valuesTitle": "Nossos Valores",
+    "values": [
+      { "icon": "heart", "color": "red", "title": "Paixão pelo Cliente", "description": "Colocamos nossos clientes no centro de tudo que fazemos" },
+      { "icon": "award", "color": "yellow", "title": "Excelência", "description": "Buscamos sempre a melhor experiência e qualidade" },
+      { "icon": "users", "color": "blue", "title": "Colaboração", "description": "Acreditamos no poder das parcerias e do trabalho em equipe" },
+      { "icon": "globe", "color": "green", "title": "Responsabilidade", "description": "Comprometidos com a sustentabilidade e impacto social" }
+    ],
+    "timelineTitle": "Nossa Jornada",
+    "timeline": [
+      { "year": "2018", "title": "Fundação", "description": "Nasce a Feira do Rolo com o sonho de democratizar o e-commerce no Brasil" },
+      { "year": "2019", "title": "Primeiro Milhão", "description": "Atingimos a marca de 1 milhão de produtos cadastrados" },
+      { "year": "2020", "title": "Expansão", "description": "Lançamento em todas as regiões do Brasil" },
+      { "year": "2021", "title": "Marketplace", "description": "Abertura da plataforma para vendedores parceiros" },
+      { "year": "2022", "title": "Mobile First", "description": "Lançamento do app mobile e foco na experiência móvel" },
+      { "year": "2023", "title": "Sustentabilidade", "description": "Programa de neutralização de carbono e embalagens ecológicas" },
+      { "year": "2024", "title": "IA & Tech", "description": "Implementação de IA para personalização e melhor experiência" }
+    ],
+    "teamTitle": "Nossa Liderança",
+    "team": [
+      { "name": "Ana Silva", "role": "CEO & Fundadora", "description": "20 anos de experiência em e-commerce e tecnologia" },
+      { "name": "Carlos Santos", "role": "CTO", "description": "Especialista em arquitetura de sistemas escaláveis" },
+      { "name": "Maria Oliveira", "role": "CPO", "description": "Focada na experiência do usuário e inovação em produtos" },
+      { "name": "João Costa", "role": "CMO", "description": "Expert em marketing digital e crescimento sustentável" }
+    ],
+    "vision": {
+      "title": "Nossa Visão",
+      "paragraphs": [
+        "Ser a principal plataforma de e-commerce do Brasil, reconhecida pela excelência no atendimento, inovação tecnológica e compromisso com o desenvolvimento econômico e social do país.",
+        "Queremos ser o lugar onde cada brasileiro pode encontrar o que precisa e realizar seus sonhos empreendedores."
+      ]
+    },
+    "sustainability": {
+      "title": "Sustentabilidade",
+      "items": [
+        "Embalagens 100% recicláveis",
+        "Programa de carbono neutro",
+        "Parcerias com ONGs ambientais",
+        "Incentivo ao comércio local"
+      ]
+    },
+    "awards": {
+      "title": "Reconhecimentos",
+      "subtitle": "Prêmios e certificações que recebemos ao longo dos anos",
+      "items": [
+        { "icon": "award", "color": "yellow", "title": "Melhor E-commerce 2023", "source": "Prêmio E-commerce Brasil" },
+        { "icon": "trending-up", "color": "blue", "title": "Startup do Ano 2022", "source": "Revista Época Negócios" },
+        { "icon": "users", "color": "green", "title": "Melhor Lugar para Trabalhar", "source": "Great Place to Work" }
+      ]
+    },
+    "cta": {
+      "title": "Quer Fazer Parte da Nossa História?",
+      "subtitle": "Venha construir o futuro do e-commerce brasileiro conosco",
+      "primaryLabel": "Ver Vagas Abertas",
+      "primaryHref": "/quem-somos",
+      "secondaryLabel": "Seja um Vendedor",
+      "secondaryHref": "/adicionar-produto"
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "slug": "politica-de-privacidade",
+  "title": "Política de Privacidade",
+  "subtitle": "Saiba como a Feira do Rolo coleta, usa e protege seus dados pessoais",
+  "kind": "content",
+  "icon": "shield",
+  "content": {
+    "updated_at": "",
+    "intro": {
+      "icon": "eye",
+      "title": "Compromisso com sua Privacidade",
+      "text": "A Feira do Rolo está comprometida em proteger sua privacidade e dados pessoais. Esta política explica como coletamos, usamos e protegemos suas informações quando você usa nossa plataforma de marketplace."
+    },
+    "sections": [
+      {
+        "icon": "lock",
+        "title": "Informações que Coletamos",
+        "groups": [
+          { "subtitle": "Dados Pessoais:", "items": ["Nome completo e endereço de e-mail", "CPF ou CNPJ para verificação", "Endereço para entrega", "Informações de pagamento (processadas com segurança)"] },
+          { "subtitle": "Dados de Uso:", "items": ["Histórico de navegação e compras", "Preferências e interações", "Dados de dispositivo e localização"] }
+        ]
+      },
+      {
+        "icon": "cookie",
+        "title": "Como Usamos seus Dados",
+        "columns": [
+          { "subtitle": "Funcionalidade:", "items": ["Processar pedidos e pagamentos", "Gerenciar sua conta", "Fornecer suporte ao cliente"] },
+          { "subtitle": "Melhorias:", "items": ["Personalizar sua experiência", "Análise de performance", "Prevenção de fraudes"] }
+        ]
+      },
+      {
+        "icon": "cookieYellow",
+        "title": "Política de Cookies",
+        "paragraphs": ["Utilizamos cookies para melhorar sua experiência. Você pode gerenciar suas preferências de cookies a qualquer momento."],
+        "cards": [
+          { "color": "green", "title": "Essenciais", "text": "Necessários para funcionamento" },
+          { "color": "blue", "title": "Análise", "text": "Melhoria da experiência" },
+          { "color": "purple", "title": "Marketing", "text": "Conteúdo relevante" }
+        ]
+      },
+      {
+        "icon": "shield",
+        "title": "Seus Direitos (LGPD)",
+        "columns": [
+          { "items": ["Confirmação de tratamento de dados", "Acesso aos seus dados", "Correção de dados incompletos", "Eliminação de dados desnecessários"] },
+          { "items": ["Portabilidade dos dados", "Revogação do consentimento", "Informações sobre compartilhamento", "Oposição ao tratamento"] }
+        ]
+      },
+      {
+        "icon": "bell",
+        "highlight": true,
+        "title": "Notificações Push",
+        "paragraphs": ["Com seu consentimento, enviamos notificações push para melhorar sua experiência:"],
+        "columns": [
+          { "subtitle": "Atualizações Importantes:", "items": ["Status dos seus pedidos", "Confirmações de entrega", "Mensagens de vendedores", "Alertas de segurança"] },
+          { "subtitle": "Ofertas Personalizadas:", "items": ["Promoções relevantes", "Produtos em promoção", "Lembretes de carrinho", "Cupons exclusivos"] }
+        ],
+        "note": { "strong": "Controle Total:", "text": " Você pode ativar/desativar notificações a qualquer momento nas configurações do seu navegador ou na sua conta." }
+      },
+      {
+        "icon": "mail",
+        "title": "Entre em Contato",
+        "paragraphs": ["Para exercer seus direitos ou esclarecer dúvidas sobre esta política:"],
+        "contacts": [
+          { "type": "mail", "text": "privacidade@feiradocrolo.com.br" },
+          { "type": "calendar", "text": "Resposta em até 15 dias úteis" }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "slug": "central-de-ajuda",
+  "title": "Central de Ajuda",
+  "subtitle": "Encontre respostas para suas dúvidas ou fale diretamente conosco",
+  "kind": "faq",
+  "icon": null,
+  "content": {
+    "hero": {
+      "title": "Como podemos ajudar você?",
+      "subtitle": "Nossa central de ajuda está aqui para resolver suas dúvidas rapidamente. Encontre respostas ou fale diretamente conosco.",
+      "searchPlaceholder": "Digite sua dúvida aqui..."
+    },
+    "quickActions": [
+      { "icon": "package", "color": "blue", "title": "Rastrear Pedido", "description": "Acompanhe o status do seu pedido", "action": "Rastrear" },
+      { "icon": "refresh", "color": "green", "title": "Trocas e Devoluções", "description": "Solicite troca ou devolução", "action": "Solicitar" },
+      { "icon": "card", "color": "purple", "title": "Minhas Compras", "description": "Histórico de pedidos e faturas", "action": "Ver Histórico" },
+      { "icon": "user", "color": "orange", "title": "Minha Conta", "description": "Gerenciar dados pessoais", "action": "Acessar" }
+    ],
+    "faqTitle": "Perguntas Frequentes",
+    "categories": [
+      {
+        "title": "Pedidos e Entregas",
+        "icon": "truck",
+        "count": 12,
+        "questions": [
+          { "question": "Como rastrear meu pedido?", "answer": "Acesse 'Meus Pedidos' na sua conta ou use o código de rastreamento enviado por email. Você receberá atualizações em tempo real sobre o status da entrega." },
+          { "question": "Qual o prazo de entrega?", "answer": "Os prazos variam conforme a região e modalidade:\n• Região Sudeste: 2-5 dias úteis\n• Demais regiões: 3-8 dias úteis\n• Entrega expressa: 1-2 dias úteis (disponível em capitais)" },
+          { "question": "Posso alterar o endereço de entrega?", "answer": "Sim, você pode alterar o endereço antes do produto ser enviado. Acesse 'Meus Pedidos' e clique em 'Alterar Endereço' ou entre em contato conosco." },
+          { "question": "O que fazer se não estiver em casa na entrega?", "answer": "O transportador fará até 3 tentativas de entrega. Você pode reagendar através do código de rastreamento ou autorizar a entrega com vizinhos." }
+        ]
+      },
+      {
+        "title": "Pagamentos",
+        "icon": "card",
+        "count": 8,
+        "questions": [
+          { "question": "Quais formas de pagamento vocês aceitam?", "answer": "Aceitamos:\n• PIX (aprovação instantânea)\n• Cartões de crédito (até 12x sem juros)\n• Boleto bancário (até 3 dias para compensar)\n• Débito online" },
+          { "question": "É seguro fazer compras online?", "answer": "Sim! Usamos criptografia SSL 256 bits e somos certificados PCI DSS. Seus dados ficam protegidos e não armazenamos informações sensíveis do cartão." },
+          { "question": "Como funciona o PIX?", "answer": "No PIX, o pagamento é aprovado na hora! Escolha PIX no checkout, escaneie o QR Code ou copie o código, e pronto. Seu pedido será liberado automaticamente." }
+        ]
+      },
+      {
+        "title": "Produtos",
+        "icon": "package",
+        "count": 15,
+        "questions": [
+          { "question": "Como encontrar produtos específicos?", "answer": "Use nossa busca avançada com filtros por categoria, preço, marca e avaliações. Você também pode navegar pelas categorias ou usar as sugestões personalizadas." },
+          { "question": "Como saber se um produto é original?", "answer": "Todos os produtos são verificados pelos nossos vendedores parceiros. Procure pelo selo 'Produto Verificado' e leia as avaliações de outros compradores." },
+          { "question": "Posso reservar um produto?", "answer": "Sim! Adicione ao carrinho para reservar por 30 minutos ou use a lista de desejos para acompanhar produtos de interesse." }
+        ]
+      },
+      {
+        "title": "Conta e Cadastro",
+        "icon": "user",
+        "count": 6,
+        "questions": [
+          { "question": "Como criar uma conta?", "answer": "Clique em 'Cadastrar' no topo da página, preencha seus dados básicos e confirme seu email. É rápido e gratuito!" },
+          { "question": "Esqueci minha senha, como recuperar?", "answer": "Na página de login, clique em 'Esqueci minha senha', digite seu email e siga as instruções enviadas para redefinir." },
+          { "question": "Como alterar meus dados pessoais?", "answer": "Acesse 'Minha Conta' > 'Dados Pessoais' para atualizar informações como nome, telefone, CPF e endereços." }
+        ]
+      }
+    ],
+    "contactTitle": "Fale Conosco",
+    "contactMethods": [
+      { "icon": "chat", "color": "green", "title": "Chat Online", "description": "Atendimento instantâneo com nossos consultores", "time": "24h por dia, 7 dias por semana", "action": "Iniciar Chat", "badge": "Mais Rápido" },
+      { "icon": "phone", "color": "blue", "title": "Central de Atendimento", "description": "0800 123 4567 (ligação gratuita)", "time": "Segunda a Sexta: 8h às 22h | Sábado: 8h às 18h", "action": "Ligar Agora", "badge": null },
+      { "icon": "mail", "color": "purple", "title": "E-mail Especializado", "description": "suporte@feiradorolo.com.br", "time": "Resposta garantida em até 4 horas", "action": "Enviar E-mail", "badge": "Detalhado" }
+    ],
+    "tip": "Para um atendimento mais rápido, tenha em mãos o número do seu pedido, CPF cadastrado e descrição detalhada da sua dúvida.",
+    "statsTitle": "Nossos Números",
+    "stats": [
+      { "value": "98%", "label": "Satisfação dos clientes", "color": "blue" },
+      { "value": "2min", "label": "Tempo médio de resposta", "color": "green" },
+      { "value": "24/7", "label": "Atendimento online", "color": "purple" },
+      { "value": "50k+", "label": "Dúvidas resolvidas", "color": "orange" }
+    ]
+  }
+}

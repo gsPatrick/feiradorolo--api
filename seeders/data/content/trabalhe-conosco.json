@@ -1,0 +1,55 @@
+{
+  "slug": "trabalhe-conosco",
+  "title": "Trabalhe Conosco",
+  "subtitle": "Venha transformar o e-commerce brasileiro conosco! Oferecemos um ambiente inovador, benefícios incríveis e a oportunidade de impactar milhões de vidas.",
+  "kind": "form",
+  "icon": "store",
+  "content": {
+    "hero": {
+      "title": "Por que a Feira do Rolo?",
+      "subtitle": "Somos uma das startups que mais cresce no Brasil. Aqui você terá a oportunidade de fazer a diferença em um ambiente dinâmico e inovador.",
+      "cta": "Ver Vagas Abertas"
+    },
+    "stats": [
+      { "value": "500+", "label": "Colaboradores", "color": "yellow" },
+      { "value": "15+", "label": "Escritórios", "color": "blue" },
+      { "value": "95%", "label": "Satisfação", "color": "green" },
+      { "value": "4.8", "label": "Glassdoor", "color": "purple" }
+    ],
+    "beneficios": [
+      { "icon": "heart", "color": "red", "title": "Plano de Saúde", "description": "Cobertura completa para você e sua família" },
+      { "icon": "coffee", "color": "brown", "title": "Trabalho Híbrido", "description": "Flexibilidade para trabalhar de casa ou no escritório" },
+      { "icon": "trending-up", "color": "green", "title": "Desenvolvimento", "description": "Cursos, certificações e plano de carreira" },
+      { "icon": "gamepad", "color": "purple", "title": "Ambiente Descontraído", "description": "Jogos, eventos e espaços de relaxamento" }
+    ],
+    "departamentos": [
+      { "name": "Tecnologia", "openings": 8, "icon": "💻" },
+      { "name": "Produto", "openings": 3, "icon": "🎯" },
+      { "name": "Marketing", "openings": 5, "icon": "📈" },
+      { "name": "Vendas", "openings": 6, "icon": "💼" },
+      { "name": "Atendimento", "openings": 4, "icon": "🎧" },
+      { "name": "Operações", "openings": 2, "icon": "⚙️" }
+    ],
+    "vagas": [
+      { "title": "Desenvolvedor Frontend React", "department": "Tecnologia", "level": "Pleno", "location": "São Paulo/SP", "type": "CLT", "description": "Desenvolvimento de interfaces modernas e responsivas usando React e TypeScript" },
+      { "title": "Product Manager", "department": "Produto", "level": "Sênior", "location": "Remote", "type": "CLT", "description": "Liderar estratégia de produto e roadmap de funcionalidades" },
+      { "title": "Designer UX/UI", "department": "Design", "level": "Pleno", "location": "São Paulo/SP", "type": "CLT", "description": "Criação de experiências excepcionais para milhões de usuários" },
+      { "title": "Analista de Marketing Digital", "department": "Marketing", "level": "Júnior", "location": "Rio de Janeiro/RJ", "type": "CLT", "description": "Gestão de campanhas e análise de performance em canais digitais" },
+      { "title": "Engenheiro de Dados", "department": "Tecnologia", "level": "Sênior", "location": "Remote", "type": "CLT", "description": "Arquitetura e implementação de pipelines de dados em grande escala" }
+    ],
+    "cultura": [
+      { "title": "Inovação Constante", "description": "Incentivamos ideias criativas e experimentação" },
+      { "title": "Crescimento Conjunto", "description": "Seu sucesso é o nosso sucesso - crescemos juntos" },
+      { "title": "Diversidade e Inclusão", "description": "Valorizamos diferentes perspectivas e experiências" },
+      { "title": "Impacto Real", "description": "Seu trabalho impacta milhões de brasileiros" }
+    ],
+    "processo": [
+      { "title": "Candidatura", "description": "Envie seu currículo" },
+      { "title": "Triagem", "description": "Análise do perfil" },
+      { "title": "Entrevistas", "description": "Conversa com o time" },
+      { "title": "Decisão", "description": "Feedback e proposta" }
+    ],
+    "formTitle": "Candidate-se a uma Vaga",
+    "formSubtitle": "Preencha o formulário abaixo e nossa equipe entrará em contato"
+  }
+}

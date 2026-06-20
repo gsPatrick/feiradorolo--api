@@ -1,0 +1,106 @@
+{
+  "slug": "frete-e-entrega",
+  "title": "Frete e Entrega",
+  "subtitle": "Entrega rápida, segura e confiável para todo o Brasil. Escolha a modalidade que melhor atende suas necessidades.",
+  "kind": "content",
+  "icon": "truck",
+  "content": {
+    "hero": {
+      "title": "Frete e Entrega",
+      "description": "Entrega rápida, segura e confiável para todo o Brasil. Escolha a modalidade que melhor atende suas necessidades.",
+      "calculatorTitle": "Calcular Frete",
+      "calculatorPlaceholder": "Digite seu CEP",
+      "calculatorButton": "Calcular Frete"
+    },
+    "modalidadesTitle": "Modalidades de Entrega",
+    "modalidades": [
+      {
+        "icon": "truck",
+        "iconTone": "blue",
+        "title": "Entrega Padrão",
+        "description": "Para todo o Brasil",
+        "prazo": "3-8 dias úteis",
+        "preco": "A partir de R$ 12,90",
+        "features": ["Rastreamento incluso", "Seguro até R$ 500", "Entrega no endereço"],
+        "badge": "Mais Popular"
+      },
+      {
+        "icon": "clock",
+        "iconTone": "green",
+        "title": "Entrega Expressa",
+        "description": "Capitais e regiões metropolitanas",
+        "prazo": "1-2 dias úteis",
+        "preco": "A partir de R$ 25,90",
+        "features": ["Rastreamento em tempo real", "Seguro até R$ 1000", "Prioridade máxima"],
+        "badge": "Mais Rápido"
+      },
+      {
+        "icon": "package",
+        "iconTone": "purple",
+        "title": "Retire na Loja",
+        "description": "Pontos de retirada parceiros",
+        "prazo": "2-5 dias úteis",
+        "preco": "Grátis",
+        "features": ["Sem custo adicional", "Horário flexível", "Mais de 500 pontos"],
+        "badge": "Econômico"
+      }
+    ],
+    "modalidadeButton": "Escolher Esta Opção",
+    "regioesTitle": "Prazos de Entrega por Região",
+    "regioesHeaders": {
+      "regiao": "Região",
+      "estados": "Estados",
+      "padrao": "Entrega Padrão",
+      "expressa": "Entrega Expressa",
+      "disponivel": "Express Disponível"
+    },
+    "regioes": [
+      { "regiao": "Sudeste", "estados": "SP, RJ, MG, ES", "prazoMin": "1-3 dias", "prazoMax": "3-5 dias", "expressa": true },
+      { "regiao": "Sul", "estados": "RS, SC, PR", "prazoMin": "2-4 dias", "prazoMax": "4-6 dias", "expressa": true },
+      { "regiao": "Centro-Oeste", "estados": "GO, DF, MT, MS", "prazoMin": "3-5 dias", "prazoMax": "5-7 dias", "expressa": false },
+      { "regiao": "Nordeste", "estados": "BA, PE, CE, e outros", "prazoMin": "4-6 dias", "prazoMax": "6-8 dias", "expressa": false },
+      { "regiao": "Norte", "estados": "AM, PA, AC, e outros", "prazoMin": "5-7 dias", "prazoMax": "7-10 dias", "expressa": false }
+    ],
+    "protecao": {
+      "title": "Proteção Total",
+      "items": [
+        "Seguro automático incluído em todas as entregas",
+        "Cobertura até o valor do produto",
+        "Rastreamento em tempo real",
+        "Suporte especializado 24/7"
+      ]
+    },
+    "freteGratis": {
+      "title": "Frete Grátis",
+      "items": [
+        "Compras acima de R$ 99 (Sudeste/Sul)",
+        "Compras acima de R$ 149 (demais regiões)",
+        "Produtos com selo especial",
+        "Membros do programa fidelidade"
+      ]
+    },
+    "faqTitle": "Perguntas Frequentes",
+    "faq": [
+      {
+        "pergunta": "Como é calculado o frete?",
+        "resposta": "O frete é calculado com base no peso, dimensões do produto, distância entre origem e destino, e modalidade escolhida. Utilizamos as melhores transportadoras do mercado para garantir o melhor custo-benefício."
+      },
+      {
+        "pergunta": "Quando o frete é grátis?",
+        "resposta": "Oferecemos frete grátis para:\n• Compras acima de R$ 99 (Sudeste/Sul)\n• Compras acima de R$ 149 (demais regiões)\n• Produtos elegíveis com selo 'Frete Grátis'\n• Assinantes do nosso programa de fidelidade"
+      },
+      {
+        "pergunta": "Posso alterar o endereço após a compra?",
+        "resposta": "Sim, você pode alterar o endereço de entrega antes do produto ser enviado. Acesse 'Meus Pedidos' ou entre em contato conosco. Após o envio, apenas em casos especiais mediante taxa adicional."
+      },
+      {
+        "pergunta": "O que acontece se não estiver em casa?",
+        "resposta": "O transportador fará até 3 tentativas de entrega em dias alternados. Você pode:\n• Reagendar a entrega\n• Autorizar entrega com vizinhos\n• Redirecionar para um ponto de retirada\n• Solicitar entrega em horário alternativo"
+      }
+    ],
+    "alerta": {
+      "title": "Dúvidas sobre entrega?",
+      "text": "Entre em contato conosco através do chat, telefone ou e-mail. Nossa equipe de logística está pronta para ajudar você!"
+    }
+  }
+}

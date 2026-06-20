@@ -1,0 +1,96 @@
+'use strict';
+
+/**
+ * Provider de e-mail transacional. Renderiza templates de message_templates e
+ * envia pelo provedor ATIVO em integration_settings: Brevo (HTTP API) ou Zoho
+ * (ZeptoMail HTTP API). O admin escolhe qual ativar — nada hardcoded.
+ *
+ *   Brevo:  POST https://api.brevo.com/v3/smtp/email        header: api-key
+ *   Zoho:   POST https://api.zeptomail.com/v1.1/email        header: Authorization: Zoho-enczapikey <key>
+ */
+const axios = require('axios');
+const db = require('../../models');
+const settings = require('../../services/settings.cache');
+const logger = require('../../utils/logger');
+
+const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
+const ZEPTO_URL = 'https://api.zeptomail.com/v1.1/email';
+
+/** Substitui {{var}} no texto pelos valores fornecidos. */
+function render(template, vars = {}) {
+  if (!template) return '';
+  return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ''));
+}
+
+async function loadTemplate(key, channel = 'email', locale = 'pt-BR') {
+  return db.MessageTemplate.findOne({ where: { key, channel, locale, is_active: true } });
+}
+
+/** Resolve o provedor ativo (brevo > zoho) e suas credenciais — só do banco. */
+async function resolveProvider() {
+  const brevo = await settings.integration('brevo');
+  if (brevo && brevo.credentials && brevo.credentials.apiKey) return { name: 'brevo', cfg: brevo };
+  const zoho = await settings.integration('zoho');
+  if (zoho && zoho.credentials && zoho.credentials.apiKey) return { name: 'zoho', cfg: zoho };
+  return null;
+}
+
+/** Remetente: config da integração ou settings globais mail.from_* (admin). */
+async function senderFrom(cfg) {
+  return {
+    email: (cfg.config && cfg.config.senderEmail) || (await settings.get('mail.from_email', 'no-reply@feiradorolo.com')),
+    name: (cfg.config && cfg.config.senderName) || (await settings.get('mail.from_name', 'Feira do Rolo')),
+  };
+}
+
+async function sendBrevo(cfg, { to, toName, subject, html }) {
+  const sender = await senderFrom(cfg);
+  const { data } = await axios.post(
+    BREVO_URL,
+    { sender, to: [{ email: to, name: toName || undefined }], subject, htmlContent: html || '<p></p>' },
+    { headers: { 'api-key': cfg.credentials.apiKey, 'Content-Type': 'application/json', accept: 'application/json' }, timeout: 15000 }
+  );
+  return { sent: true, provider: 'brevo', messageId: data.messageId };
+}
+
+async function sendZoho(cfg, { to, toName, subject, html }) {
+  const sender = await senderFrom(cfg);
+  const { data } = await axios.post(
+    ZEPTO_URL,
+    {
+      from: { address: sender.email, name: sender.name },
+      to: [{ email_address: { address: to, name: toName || to } }],
+      subject,
+      htmlbody: html || '<p></p>',
+    },
+    { headers: { Authorization: `Zoho-enczapikey ${cfg.credentials.apiKey}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+  );
+  return { sent: true, provider: 'zoho', data };
+}
+
+/**
+ * Envia e-mail. Com `templateKey`, usa message_templates (admin edita o conteúdo);
+ * senão usa subject/html diretos.
+ */
+async function sendEmail({ to, subject, html, templateKey, vars = {}, toName }) {
+  let finalSubject = subject;
+  let finalHtml = html;
+  if (templateKey) {
+    const tpl = await loadTemplate(templateKey, 'email');
+    if (tpl) {
+      finalSubject = render(tpl.subject, vars);
+      finalHtml = render(tpl.body, vars);
+    }
+  }
+
+  const provider = await resolveProvider();
+  if (!provider) {
+    logger.warn(`E-mail não enviado (nenhum provedor configurado). to=${to} assunto="${finalSubject}"`);
+    return { skipped: true, reason: 'NO_PROVIDER' };
+  }
+
+  const args = { to, toName, subject: finalSubject, html: finalHtml };
+  return provider.name === 'zoho' ? sendZoho(provider.cfg, args) : sendBrevo(provider.cfg, args);
+}
+
+module.exports = { sendEmail, render, loadTemplate, resolveProvider };

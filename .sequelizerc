@@ -1,0 +1,9 @@
+const path = require('path');
+
+// Mapeia os caminhos usados pelo sequelize-cli para a estrutura do projeto.
+module.exports = {
+  config: path.resolve('config', 'config.js'),
+  'models-path': path.resolve('src', 'models'),
+  'migrations-path': path.resolve('migrations'),
+  'seeders-path': path.resolve('seeders'),
+};

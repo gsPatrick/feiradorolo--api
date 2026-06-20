@@ -1,0 +1,101 @@
+{
+  "slug": "seguranca",
+  "title": "Segurança e Privacidade",
+  "subtitle": "Sua segurança é nossa prioridade. Conheça as medidas que adotamos para proteger seus dados e garantir transações 100% seguras.",
+  "kind": "content",
+  "icon": "shield",
+  "content": {
+    "header": {
+      "title": "Segurança e Privacidade",
+      "subtitle": "Sua segurança é nossa prioridade. Conheça as medidas que adotamos para proteger seus dados e garantir transações 100% seguras."
+    },
+    "promise": {
+      "strong": "Compromisso com a Segurança:",
+      "text": "Investimos continuamente em tecnologia e processos para manter seus dados protegidos com os mais altos padrões de segurança."
+    },
+    "securityMeasures": [
+      {
+        "icon": "shield",
+        "color": "green",
+        "title": "Criptografia SSL/TLS",
+        "description": "Todos os dados são protegidos com criptografia de última geração",
+        "details": ["Certificado SSL 256-bit", "Protocolo TLS 1.3", "Verificação contínua"]
+      },
+      {
+        "icon": "lock",
+        "color": "blue",
+        "title": "Autenticação Segura",
+        "description": "Sistema robusto de verificação de identidade",
+        "details": ["Autenticação de dois fatores", "Senhas criptografadas", "Bloqueio automático"]
+      },
+      {
+        "icon": "eye",
+        "color": "purple",
+        "title": "Monitoramento 24/7",
+        "description": "Vigilância constante contra ameaças e fraudes",
+        "details": ["Detecção de anomalias", "Alertas em tempo real", "Equipe especializada"]
+      },
+      {
+        "icon": "file-text",
+        "color": "orange",
+        "title": "Compliance e Auditoria",
+        "description": "Conformidade com regulamentações nacionais e internacionais",
+        "details": ["Certificação PCI DSS", "LGPD compliance", "Auditorias regulares"]
+      }
+    ],
+    "dataProtectionTitle": "Proteção de Dados (LGPD)",
+    "dataProtection": [
+      { "icon": "📊", "title": "Coleta de Dados", "description": "Coletamos apenas dados necessários para o funcionamento dos serviços" },
+      { "icon": "🔒", "title": "Armazenamento Seguro", "description": "Dados criptografados em servidores seguros com backup redundante" },
+      { "icon": "🤝", "title": "Compartilhamento Limitado", "description": "Nunca vendemos seus dados. Compartilhamento apenas quando autorizado" },
+      { "icon": "⚙️", "title": "Controle do Usuário", "description": "Você pode acessar, editar ou excluir seus dados a qualquer momento" }
+    ],
+    "certifications": {
+      "title": "Certificações e Compliance",
+      "description": "Atendemos aos mais rigorosos padrões de segurança da indústria",
+      "items": [
+        { "icon": "🏆", "name": "PCI DSS Level 1", "description": "Padrão de segurança para cartões" },
+        { "icon": "📋", "name": "ISO 27001", "description": "Gestão de segurança da informação" },
+        { "icon": "🔍", "name": "SOC 2 Type II", "description": "Controles de segurança auditados" },
+        { "icon": "🛡️", "name": "LGPD Compliance", "description": "Proteção de dados pessoais" }
+      ]
+    },
+    "userTips": {
+      "title": "Dicas de Segurança",
+      "description": "Como você pode se proteger online",
+      "items": [
+        { "title": "Use senhas fortes", "description": "Combine letras, números e símbolos. Evite informações pessoais" },
+        { "title": "Ative a autenticação de dois fatores", "description": "Adicione uma camada extra de segurança à sua conta" },
+        { "title": "Verifique URLs", "description": "Sempre confirme que está no site oficial antes de inserir dados" },
+        { "title": "Mantenha-se atualizado", "description": "Use versões atualizadas do navegador e sistema operacional" },
+        { "title": "Monitore sua conta", "description": "Verifique regularmente suas transações e atividades" },
+        { "title": "Desconfie de phishing", "description": "Nunca forneça dados pessoais por email ou telefone" }
+      ]
+    },
+    "incident": {
+      "title": "Resposta a Incidentes",
+      "description": "Como agimos em caso de problemas de segurança",
+      "steps": [
+        { "tone": "red", "title": "Detecção Imediata", "description": "Sistemas automatizados detectam ameaças em tempo real" },
+        { "tone": "orange", "title": "Contenção Rápida", "description": "Isolamento imediato para prevenir propagação" },
+        { "tone": "blue", "title": "Investigação Completa", "description": "Análise forense para entender o incidente" },
+        { "tone": "green", "title": "Comunicação Transparente", "description": "Notificação imediata aos usuários afetados" }
+      ]
+    },
+    "privacyControls": {
+      "title": "Controles de Privacidade",
+      "items": [
+        { "title": "📊 Seus Dados", "description": "Acesse e visualize todos os dados que temos sobre você", "action": "Baixar Meus Dados" },
+        { "title": "✏️ Editar Dados", "description": "Corrija ou atualize suas informações pessoais", "action": "Gerenciar Dados" },
+        { "title": "🗑️ Excluir Conta", "description": "Remova permanentemente sua conta e dados", "action": "Solicitar Exclusão" }
+      ]
+    },
+    "contact": {
+      "title": "Encontrou um Problema de Segurança?",
+      "description": "Relate vulnerabilidades responsavelmente",
+      "primaryAction": "Reportar Vulnerabilidade",
+      "secondaryAction": "Contatar Equipe de Segurança",
+      "note": "Para questões urgentes de segurança: security@feiradojogo.com.br"
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "slug": "suporte",
+  "title": "Central de Suporte",
+  "subtitle": "Estamos aqui para ajudar você! Encontre respostas ou entre em contato conosco.",
+  "kind": "form",
+  "icon": null,
+  "content": {
+    "hero": {
+      "title": "Central de Suporte",
+      "subtitle": "Estamos aqui para ajudar você! Encontre respostas ou entre em contato conosco."
+    },
+    "canais": [
+      { "icon": "chat", "title": "Chat Online", "description": "Atendimento imediato", "badge": "Online" },
+      { "icon": "phone", "title": "Telefone", "description": "(11) 3000-0000", "extra": "Seg-Sex 8h às 18h" },
+      { "icon": "mail", "title": "E-mail", "description": "suporte@feiraorolo.com.br", "extra": "Resposta em 24h" }
+    ],
+    "formTitle": "Envie sua Mensagem",
+    "formSubtitle": "Preencha o formulário abaixo e nossa equipe entrará em contato",
+    "categorias": [
+      { "value": "pedido", "label": "Problemas com Pedido" },
+      { "value": "pagamento", "label": "Dúvidas sobre Pagamento" },
+      { "value": "entrega", "label": "Questões de Entrega" },
+      { "value": "devolucao", "label": "Devolução/Troca" },
+      { "value": "conta", "label": "Problemas na Conta" },
+      { "value": "vendedor", "label": "Quero ser Vendedor" },
+      { "value": "outro", "label": "Outro Assunto" }
+    ],
+    "faqTitle": "Perguntas Frequentes",
+    "faqSubtitle": "Veja se sua dúvida já foi respondida",
+    "faq": [
+      { "q": "Como posso rastrear meu pedido?", "a": "Você pode rastrear seu pedido na área 'Meus Pedidos' ou através do código de rastreamento enviado por email.", "categoria": "Pedidos" },
+      { "q": "Qual o prazo para devolução?", "a": "Você tem até 7 dias corridos para solicitar a devolução conforme o Código de Defesa do Consumidor.", "categoria": "Devoluções" },
+      { "q": "Como me tornar um vendedor?", "a": "Acesse a área 'Vender' no menu principal e siga o processo de cadastro de vendedor.", "categoria": "Vendas" },
+      { "q": "Quais formas de pagamento aceitas?", "a": "Aceitamos cartões de crédito, débito, PIX, boleto bancário e parcelamento em até 12x.", "categoria": "Pagamentos" },
+      { "q": "Como alterar dados da minha conta?", "a": "Acesse 'Minha Conta' > 'Dados Pessoais' para atualizar suas informações.", "categoria": "Conta" },
+      { "q": "Taxa de entrega é grátis?", "a": "A taxa de entrega varia conforme o vendedor, localização e valor do pedido. Alguns vendedores oferecem frete grátis.", "categoria": "Entrega" }
+    ],
+    "horario": {
+      "title": "Horário de Atendimento",
+      "linhas": [
+        { "dia": "Segunda a Sexta", "horas": "8h às 18h" },
+        { "dia": "Sábado", "horas": "9h às 15h" },
+        { "dia": "Domingo", "horas": "Fechado" }
+      ]
+    },
+    "links": {
+      "title": "Links Úteis",
+      "items": [
+        { "icon": "cart", "label": "Meus Pedidos", "href": "/meus-pedidos" },
+        { "icon": "card", "label": "Formas de Pagamento", "href": "/politica-privacidade" },
+        { "icon": "truck", "label": "Política de Entrega", "href": "#" },
+        { "icon": "refresh", "label": "Trocas e Devoluções", "href": "#" }
+      ]
+    },
+    "denuncias": {
+      "title": "Denúncias",
+      "description": "Para denunciar produtos suspeitos ou vendedores fraudulentos:",
+      "email": "denuncia@feiraorolo.com.br"
+    }
+  }
+}

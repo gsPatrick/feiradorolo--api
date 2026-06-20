@@ -1,0 +1,73 @@
+{
+  "slug": "garantia",
+  "title": "Garantia",
+  "subtitle": "Seus produtos protegidos com garantia legal, do fabricante e opções estendidas.",
+  "kind": "content",
+  "icon": "shield",
+  "content": {
+    "alert": "Todos os produtos da Feira do Rolo possuem garantia legal e, quando aplicável, garantia do fabricante.",
+    "warrantyTypes": [
+      {
+        "icon": "shield",
+        "color": "blue",
+        "title": "Garantia Legal",
+        "period": "30-90 dias",
+        "description": "Garantia obrigatória por lei contra defeitos de fabricação",
+        "coverage": ["Defeitos de fabricação", "Vícios ocultos", "Produtos que não funcionam"]
+      },
+      {
+        "icon": "wrench",
+        "color": "green",
+        "title": "Garantia do Fabricante",
+        "period": "1-3 anos",
+        "description": "Garantia oferecida pelo fabricante do produto",
+        "coverage": ["Defeitos de fabricação", "Peças e componentes", "Assistência técnica"]
+      },
+      {
+        "icon": "file-text",
+        "color": "purple",
+        "title": "Garantia Estendida",
+        "period": "Até 5 anos",
+        "description": "Proteção adicional opcional para seus produtos",
+        "coverage": ["Acidentes", "Danos por uso", "Reposição rápida"]
+      }
+    ],
+    "categories": [
+      { "category": "Eletrônicos", "legalWarranty": "30 dias", "manufacturerWarranty": "1-2 anos", "examples": "Smartphones, tablets, notebooks" },
+      { "category": "Eletrodomésticos", "legalWarranty": "90 dias", "manufacturerWarranty": "1-3 anos", "examples": "Geladeiras, micro-ondas, lavadoras" },
+      { "category": "Móveis", "legalWarranty": "90 dias", "manufacturerWarranty": "1-5 anos", "examples": "Sofás, camas, armários" },
+      { "category": "Livros e Mídia", "legalWarranty": "30 dias", "manufacturerWarranty": "N/A", "examples": "Livros, CDs, DVDs" },
+      { "category": "Roupas e Calçados", "legalWarranty": "30 dias", "manufacturerWarranty": "Varia", "examples": "Roupas, sapatos, acessórios" }
+    ],
+    "howToClaim": [
+      { "title": "Identifique o Problema", "description": "Verifique se é defeito de fabricação ou problema técnico" },
+      { "title": "Entre em Contato", "description": "Acesse \"Meus Pedidos\" e solicite suporte técnico" },
+      { "title": "Envie Documentos", "description": "Forneça nota fiscal e fotos do problema" },
+      { "title": "Aguarde Análise", "description": "Analisaremos e direcionaremos para assistência técnica" }
+    ],
+    "covered": [
+      "Defeitos de fabricação",
+      "Problemas técnicos sem causa externa",
+      "Vícios ocultos do produto",
+      "Peças e componentes defeituosos"
+    ],
+    "notCovered": [
+      "Danos por mau uso ou acidentes",
+      "Desgaste natural do produto",
+      "Danos por água ou queda",
+      "Modificações não autorizadas"
+    ],
+    "documents": [
+      "Nota fiscal ou comprovante de compra",
+      "Certificado de garantia (quando aplicável)",
+      "Fotos do problema ou defeito",
+      "Número do pedido na Feira do Rolo"
+    ],
+    "cta": {
+      "title": "Precisa Acionar a Garantia?",
+      "description": "Estamos aqui para ajudar você",
+      "primary": "Solicitar Suporte Técnico",
+      "secondary": "Falar com Atendimento"
+    }
+  }
+}

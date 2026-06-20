@@ -1,0 +1,92 @@
+{
+  "slug": "trocas-e-devolucoes",
+  "title": "Trocas e Devoluções",
+  "subtitle": "Não ficou satisfeito? Sem problemas! Nosso processo de troca e devolução é simples, rápido e totalmente seguro para você.",
+  "kind": "content",
+  "icon": "refresh-cw",
+  "content": {
+    "hero": {
+      "title": "Trocas e Devoluções",
+      "subtitle": "Não ficou satisfeito? Sem problemas! Nosso processo de troca e devolução é simples, rápido e totalmente seguro para você.",
+      "primaryCta": { "label": "Solicitar Troca/Devolução", "href": "/conta/pedidos" },
+      "secondaryCta": { "label": "Rastrear Solicitação", "href": "/conta/pedidos" }
+    },
+    "tiposTitle": "Tipos de Solicitação",
+    "tipos": [
+      {
+        "icon": "refresh-cw",
+        "color": "blue",
+        "title": "Troca",
+        "description": "Trocar por outro produto",
+        "prazo": "30 dias",
+        "condicoes": ["Produto sem uso", "Embalagem original", "Nota fiscal"],
+        "processo": "Solicite > Aguarde aprovação > Envie o produto > Receba o novo"
+      },
+      {
+        "icon": "arrow-left",
+        "color": "green",
+        "title": "Devolução",
+        "description": "Reembolso do valor pago",
+        "prazo": "7 dias",
+        "condicoes": ["Arrependimento da compra", "Produto conforme anunciado", "Embalagem lacrada"],
+        "processo": "Solicite > Envie o produto > Aprovação > Reembolso"
+      },
+      {
+        "icon": "alert-circle",
+        "color": "red",
+        "title": "Defeito",
+        "description": "Produto com problemas",
+        "prazo": "90 dias",
+        "condicoes": ["Defeito de fabricação", "Produto diferente do anúncio", "Avarias no transporte"],
+        "processo": "Relate o problema > Análise técnica > Solução imediata"
+      }
+    ],
+    "passosTitle": "Como Funciona",
+    "passos": [
+      { "numero": "01", "titulo": "Solicitar", "descricao": "Acesse 'Meus Pedidos' e clique em 'Solicitar troca/devolução'", "icon": "file-text", "tempo": "Imediato" },
+      { "numero": "02", "titulo": "Análise", "descricao": "Nossa equipe analisa sua solicitação em até 24 horas", "icon": "clock", "tempo": "24h" },
+      { "numero": "03", "titulo": "Aprovação", "descricao": "Você recebe uma etiqueta de envio gratuita por e-mail", "icon": "check-circle", "tempo": "Imediato" },
+      { "numero": "04", "titulo": "Envio", "descricao": "Embale o produto e envie usando nossa etiqueta", "icon": "package", "tempo": "Até você" },
+      { "numero": "05", "titulo": "Finalização", "descricao": "Processamos sua troca/devolução em até 5 dias úteis", "icon": "refresh-cw", "tempo": "5 dias úteis" }
+    ],
+    "categoriasTitle": "Prazos por Categoria",
+    "categorias": [
+      { "categoria": "Eletrônicos", "prazoTroca": "30 dias", "prazoDefeito": "90 dias", "observacoes": "Devem estar em embalagem original com todos os acessórios", "reembolso": "Dinheiro ou cartão" },
+      { "categoria": "Roupas e Calçados", "prazoTroca": "30 dias", "prazoDefeito": "90 dias", "observacoes": "Sem sinais de uso, com etiquetas originais", "reembolso": "Dinheiro ou vale-compra" },
+      { "categoria": "Casa e Decoração", "prazoTroca": "30 dias", "prazoDefeito": "90 dias", "observacoes": "Embalagem original preservada", "reembolso": "Dinheiro ou cartão" },
+      { "categoria": "Livros e Mídia", "prazoTroca": "7 dias", "prazoDefeito": "30 dias", "observacoes": "Apenas se lacrados ou com defeito comprovado", "reembolso": "Vale-compra preferencialmente" },
+      { "categoria": "Móveis", "prazoTroca": "7 dias", "prazoDefeito": "1 ano", "observacoes": "Desmontagem por conta do cliente", "reembolso": "Dinheiro (taxa de 10% de restocking)" }
+    ],
+    "faqTitle": "Perguntas Frequentes",
+    "faq": [
+      {
+        "pergunta": "Posso trocar um produto por outro de valor diferente?",
+        "resposta": "Sim! Se o novo produto for mais caro, você paga a diferença. Se for mais barato, devolvemos a diferença em vale-compra ou no cartão usado na compra original."
+      },
+      {
+        "pergunta": "Quem paga o frete da troca/devolução?",
+        "resposta": "• Defeito ou erro nosso: Frete por nossa conta\n• Troca por tamanho/cor: Frete por nossa conta (primeira troca gratuita)\n• Arrependimento: Frete por conta do cliente\n• Produto danificado no transporte: Frete por nossa conta"
+      },
+      {
+        "pergunta": "Quanto tempo demora para receber o reembolso?",
+        "resposta": "• Cartão de crédito: 1-2 faturas\n• Cartão de débito: 5-10 dias úteis\n• PIX: 1-3 dias úteis\n• Vale-compra: Imediato após aprovação"
+      },
+      {
+        "pergunta": "Posso devolver apenas parte do pedido?",
+        "resposta": "Sim, você pode devolver itens individuais de um pedido. O reembolso será proporcional aos itens devolvidos, e o frete pode ser recalculado se aplicável."
+      }
+    ],
+    "alertas": [
+      {
+        "tone": "green",
+        "strong": "Primeira troca grátis!",
+        "text": "Sua primeira troca por tamanho ou cor tem frete gratuito. Queremos que você fique 100% satisfeito com sua compra."
+      },
+      {
+        "tone": "blue",
+        "strong": "Código de Defesa do Consumidor:",
+        "text": "Você tem o direito de desistir da compra em até 7 dias após o recebimento, conforme Art. 49 do CDC."
+      }
+    ]
+  }
+}

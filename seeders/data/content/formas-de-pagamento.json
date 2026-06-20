@@ -1,0 +1,156 @@
+{
+  "slug": "formas-de-pagamento",
+  "title": "Formas de Pagamento",
+  "subtitle": "Escolha a forma de pagamento que mais convém para você. Segurança e facilidade em todas as opções.",
+  "kind": "content",
+  "icon": "card",
+  "content": {
+    "alert": {
+      "strong": "100% Seguro:",
+      "text": "Todos os pagamentos são protegidos com criptografia SSL e monitoramento antifraude 24 horas por dia."
+    },
+    "methodsTitle": "Métodos Aceitos",
+    "paymentMethods": [
+      {
+        "icon": "smartphone",
+        "color": "green",
+        "title": "PIX",
+        "description": "Pagamento instantâneo 24 horas por dia",
+        "benefits": ["Aprovação imediata", "Sem taxas extras", "Disponível 24/7"],
+        "processingTime": "Instantâneo",
+        "badge": "Mais Rápido"
+      },
+      {
+        "icon": "card",
+        "color": "blue",
+        "title": "Cartão de Crédito",
+        "description": "Parcelamento em até 12x sem juros",
+        "benefits": ["Até 12x sem juros", "Todas as bandeiras", "Aprovação rápida"],
+        "processingTime": "Até 2 dias úteis",
+        "badge": "Popular"
+      },
+      {
+        "icon": "card",
+        "color": "purple",
+        "title": "Cartão de Débito",
+        "description": "Débito direto na conta com segurança",
+        "benefits": ["Aprovação imediata", "Maior controle", "Sem parcelamento"],
+        "processingTime": "Instantâneo",
+        "badge": "Seguro"
+      },
+      {
+        "icon": "file-text",
+        "color": "orange",
+        "title": "Boleto Bancário",
+        "description": "Pagamento tradicional brasileiro",
+        "benefits": ["Sem cartão necessário", "Pague em qualquer banco", "Prazo para pagamento"],
+        "processingTime": "1-3 dias úteis",
+        "badge": "Tradicional"
+      }
+    ],
+    "creditCards": {
+      "title": "Cartões Aceitos",
+      "description": "Aceitamos as principais bandeiras do mercado",
+      "items": [
+        { "name": "Visa", "logo": "💳" },
+        { "name": "Mastercard", "logo": "💳" },
+        { "name": "American Express", "logo": "💳" },
+        { "name": "Elo", "logo": "💳" },
+        { "name": "Hipercard", "logo": "💳" },
+        { "name": "Diners Club", "logo": "💳" }
+      ]
+    },
+    "installments": {
+      "title": "Parcelamento no Cartão",
+      "description": "Simule o parcelamento para uma compra de R$ 100,00",
+      "options": [
+        { "parcels": "1x", "fee": "sem juros", "total": "R$ 100,00" },
+        { "parcels": "2x", "fee": "sem juros", "total": "R$ 50,00" },
+        { "parcels": "3x", "fee": "sem juros", "total": "R$ 33,33" },
+        { "parcels": "4x", "fee": "sem juros", "total": "R$ 25,00" },
+        { "parcels": "5x", "fee": "sem juros", "total": "R$ 20,00" },
+        { "parcels": "6x", "fee": "sem juros", "total": "R$ 16,67" },
+        { "parcels": "7x", "fee": "1,99% a.m.", "total": "R$ 14,49" },
+        { "parcels": "8x", "fee": "1,99% a.m.", "total": "R$ 12,79" },
+        { "parcels": "9x", "fee": "1,99% a.m.", "total": "R$ 11,48" },
+        { "parcels": "10x", "fee": "1,99% a.m.", "total": "R$ 10,43" },
+        { "parcels": "11x", "fee": "1,99% a.m.", "total": "R$ 9,58" },
+        { "parcels": "12x", "fee": "1,99% a.m.", "total": "R$ 8,88" }
+      ]
+    },
+    "security": {
+      "title": "Segurança Garantida",
+      "description": "Seus dados e pagamentos estão protegidos",
+      "features": [
+        {
+          "icon": "shield",
+          "color": "green",
+          "title": "Criptografia SSL",
+          "description": "Todos os dados são protegidos com criptografia de ponta"
+        },
+        {
+          "icon": "check-circle",
+          "color": "blue",
+          "title": "Certificação PCI DSS",
+          "description": "Padrão internacional de segurança para pagamentos"
+        },
+        {
+          "icon": "clock",
+          "color": "purple",
+          "title": "Monitoramento 24/7",
+          "description": "Sistema de detecção de fraudes ativo constantemente"
+        }
+      ]
+    },
+    "info": [
+      {
+        "title": "📱 PIX",
+        "rows": [
+          { "label": "Horário", "value": "24 horas por dia" },
+          { "label": "Aprovação", "value": "Instantânea" },
+          { "label": "Taxa", "value": "Gratuita" },
+          { "label": "Limite", "value": "Conforme seu banco" }
+        ]
+      },
+      {
+        "title": "💳 Cartões",
+        "rows": [
+          { "label": "Parcelamento", "value": "Até 12x" },
+          { "label": "Sem juros", "value": "Até 6x" },
+          { "label": "Aprovação", "value": "Até 2 dias úteis" },
+          { "label": "Estorno", "value": "5-10 dias úteis" }
+        ]
+      },
+      {
+        "title": "📄 Boleto",
+        "rows": [
+          { "label": "Vencimento", "value": "3 dias úteis" },
+          { "label": "Compensação", "value": "1-3 dias úteis" },
+          { "label": "Taxa", "value": "Gratuita" },
+          { "label": "Pagamento", "value": "Qualquer banco" }
+        ]
+      }
+    ],
+    "faq": {
+      "title": "Perguntas Frequentes",
+      "items": [
+        {
+          "question": "Posso alterar a forma de pagamento?",
+          "answer": "Sim, você pode alterar antes de finalizar o pedido. Após a confirmação, entre em contato conosco."
+        },
+        {
+          "question": "O PIX é seguro?",
+          "answer": "Sim, o PIX é regulamentado pelo Banco Central e utiliza as mesmas medidas de segurança dos bancos."
+        },
+        {
+          "question": "Quando o cartão é debitado?",
+          "answer": "O valor é reservado na aprovação e debitado apenas no envio do produto."
+        },
+        {
+          "question": "Posso usar múltiplos cartões?",
+          "answer": "Atualmente não, mas você pode usar diferentes formas de pagamento em pedidos separados."
+        }
+      ]
+    }
+  }
+}
