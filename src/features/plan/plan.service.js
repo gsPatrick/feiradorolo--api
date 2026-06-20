@@ -99,8 +99,57 @@ async function subscribe(planId, userId) {
   });
 }
 
+/* ------------------------------ Admin (CRUD) ------------------------------ */
+
+function planSlug(name) {
+  const base = String(name || 'plano')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const suffix = require('crypto').randomUUID().replace(/-/g, '').slice(0, 6);
+  return `${base || 'plano'}-${suffix}`;
+}
+
+const PLAN_FIELDS = ['name', 'type', 'category_id', 'description', 'price', 'currency', 'duration_days', 'listing_limit', 'features', 'is_active'];
+
+async function adminList() {
+  return db.Plan.findAll({
+    order: [['created_at', 'DESC']],
+    include: [{ model: db.Category, as: 'category', attributes: ['id', 'name'] }],
+  });
+}
+
+async function adminCreate(data = {}) {
+  if (!data.name) throw AppError.unprocessable('name é obrigatório.', 'PLAN_NAME_REQUIRED');
+  if (!data.type) throw AppError.unprocessable('type é obrigatório.', 'PLAN_TYPE_REQUIRED');
+  const payload = { slug: planSlug(data.name) };
+  for (const f of PLAN_FIELDS) if (data[f] !== undefined) payload[f] = data[f];
+  return db.Plan.create(payload);
+}
+
+async function adminUpdate(id, data = {}) {
+  const plan = await db.Plan.findByPk(id);
+  if (!plan) throw AppError.notFound('Plano não encontrado.', 'PLAN_NOT_FOUND');
+  const updates = {};
+  for (const f of PLAN_FIELDS) if (data[f] !== undefined) updates[f] = data[f];
+  await plan.update(updates);
+  return plan;
+}
+
+async function adminRemove(id) {
+  const plan = await db.Plan.findByPk(id);
+  if (!plan) throw AppError.notFound('Plano não encontrado.', 'PLAN_NOT_FOUND');
+  await plan.destroy();
+}
+
 module.exports = {
   listActive,
   listMine,
   subscribe,
+  adminList,
+  adminCreate,
+  adminUpdate,
+  adminRemove,
 };

@@ -141,22 +141,52 @@ async function create(sellerId, data = {}) {
   const category = await db.Category.findByPk(data.category_id);
   if (!category) throw AppError.unprocessable('Categoria não encontrada.', 'CATEGORY_NOT_FOUND');
 
-  // Regras de negócio por categoria (configuração dinâmica) ----------------
-  // Imóveis/Veículos: a categoria exige um plano ativo para anunciar.
-  const pricing = await db.CategoryPricing.findOne({ where: { category_id: category.id } });
-  if (pricing && pricing.requires_plan) {
-    const activeSub = await db.PlanSubscription.findOne({
+  // Regras de negócio por categoria (config dinâmica), considerando a HIERARQUIA
+  // (a regra vale para a categoria e todos os seus ancestrais).
+  const chain = [];
+  {
+    let cid = category.id;
+    let guard = 0;
+    while (cid && guard < 20) {
+      const c =
+        guard === 0
+          ? category
+          : await db.Category.findByPk(cid, { attributes: ['id', 'parent_id', 'requires_geolocation'] });
+      if (!c) break;
+      chain.push(c);
+      cid = c.parent_id;
+      guard += 1;
+    }
+  }
+  const chainIds = chain.map((c) => c.id);
+
+  // Imóveis/Veículos: exige assinatura ativa de um plano que cobre a categoria
+  // (plano com category_id na cadeia) ou um plano global (category_id null).
+  const requiresPlan = await db.CategoryPricing.count({
+    where: { category_id: { [Op.in]: chainIds }, requires_plan: true },
+  });
+  if (requiresPlan > 0) {
+    const sub = await db.PlanSubscription.findOne({
       where: { user_id: sellerId, status: 'active' },
+      include: [
+        {
+          model: db.Plan,
+          as: 'plan',
+          required: true,
+          where: { [Op.or]: [{ category_id: { [Op.in]: chainIds } }, { category_id: null }] },
+        },
+      ],
     });
-    if (!activeSub) {
+    if (!sub) {
       throw AppError.forbidden(
         'Esta categoria exige um plano ativo para anunciar. Adquira um plano para publicar aqui.',
         'PLAN_REQUIRED'
       );
     }
   }
+
   // Causa Animal e afins: geolocalização obrigatória (para plotar no mapa).
-  if (category.requires_geolocation && (data.latitude == null || data.longitude == null)) {
+  if (chain.some((c) => c.requires_geolocation) && (data.latitude == null || data.longitude == null)) {
     throw AppError.unprocessable(
       'Esta categoria exige a sua localização (latitude e longitude).',
       'GEO_REQUIRED'

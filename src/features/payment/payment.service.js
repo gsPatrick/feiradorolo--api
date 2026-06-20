@@ -392,8 +392,47 @@ async function _ensureShipmentForOrder(orderId) {
     const existing = await db.Shipment.findOne({ where: { order_id: order.id } });
     if (existing) return;
 
+    const meta = order.metadata || {};
+    const opt = meta.shipping_option || {};
+
+    // Origem = endereço do vendedor.
+    const seller = await db.User.findByPk(order.seller_id);
+    const fromAddress = seller
+      ? {
+          name: seller.name,
+          zip_code: seller.zip_code,
+          street: seller.street,
+          number: seller.number,
+          complement: seller.complement,
+          neighborhood: seller.neighborhood,
+          city: seller.city,
+          state: seller.state,
+        }
+      : null;
+
+    // Dimensões/peso do produto (primeiro item).
+    const item = await db.OrderItem.findOne({
+      where: { order_id: order.id },
+      include: [{ model: db.Product, as: 'product', attributes: ['weight_grams', 'dimensions'] }],
+    });
+    const product = item && item.product;
+    const dimensions = product
+      ? { weight: (Number(product.weight_grams) || 0) / 1000, ...(product.dimensions || {}) }
+      : opt.dimensions || null;
+
     const shipmentService = require('../shipment/shipment.service');
-    await shipmentService.createForOrder(order.id, {}, null);
+    await shipmentService.createForOrder(
+      order.id,
+      {
+        service_code: opt.service_code || opt.id || null,
+        service_name: opt.service_name || opt.name || null,
+        cost: opt.cost != null ? opt.cost : opt.price != null ? opt.price : order.shipping_cost,
+        from_address: fromAddress,
+        to_address: meta.shipping_address || null,
+        dimensions,
+      },
+      null
+    );
   } catch (err) {
     logger.error(`_ensureShipmentForOrder: falha ao criar envio do pedido ${orderId}:`, err.message);
   }

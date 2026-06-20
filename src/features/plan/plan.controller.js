@@ -23,8 +23,27 @@ const subscribe = catchAsync(async (req, res) => {
   return sendCreated(res, result, 'Assinatura criada. Conclua o pagamento via Pix.');
 });
 
+/* Admin */
+const adminList = catchAsync(async (req, res) => {
+  return sendOk(res, await planService.adminList());
+});
+const adminCreate = catchAsync(async (req, res) => {
+  return sendCreated(res, await planService.adminCreate(req.body), 'Plano criado.');
+});
+const adminUpdate = catchAsync(async (req, res) => {
+  return sendOk(res, await planService.adminUpdate(req.params.id, req.body), 'Plano atualizado.');
+});
+const adminRemove = catchAsync(async (req, res) => {
+  await planService.adminRemove(req.params.id);
+  return sendOk(res, null, 'Plano removido.');
+});
+
 module.exports = {
   list,
   mine,
   subscribe,
+  adminList,
+  adminCreate,
+  adminUpdate,
+  adminRemove,
 };
