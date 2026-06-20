@@ -32,6 +32,7 @@ router.use('/plans', require('../features/plan/plan.routes'));
 router.use('/escrow', require('../features/escrow/escrow.routes'));
 router.use('/shipments', require('../features/shipment/shipment.routes'));
 router.use('/chats', require('../features/chat/chat.routes'));
+router.use('/reports', require('../features/report/report.routes'));
 router.use('/notifications', require('../features/notification/notification.routes'));
 router.use('/analytics', require('../features/analytics/analytics.routes'));
 router.use('/email-templates', require('../features/email-template/email-template.routes'));
