@@ -9,6 +9,7 @@ const db = require('../../models');
 const AppError = require('../../utils/AppError');
 const validators = require('../../utils/validators');
 const permissionService = require('../../services/permission.service');
+const receitaws = require('../../providers/receitaws/receitaws.provider');
 
 const PROFILE_FIELDS = [
   'name',
@@ -120,16 +121,32 @@ async function removeRole(userId, roleSlug) {
   return removed > 0;
 }
 
-async function ban(userId, { reason, type = 'temporary', scope = 'full', expires_at } = {}, bannedBy) {
+/**
+ * Aplica um banimento.
+ * - scope 'full': banimento total → account_status='banned' (middleware HTTP bloqueia tudo).
+ * - scopes parciais ('selling'/'buying'/'chat'): NÃO seta account_status='banned'
+ *   (senão bloquearia tudo); apenas cria o UserBan ativo e a enforce é feita por
+ *   serviço (chat/product) via getActiveBanScopes.
+ * - shadowban (type 'shadow' ou shadow:true): não bane — marca users.is_shadowbanned=true.
+ */
+async function ban(
+  userId,
+  { reason, type = 'temporary', scope = 'full', expires_at, shadow = false } = {},
+  bannedBy
+) {
   const user = await db.User.findByPk(userId);
   if (!user) throw AppError.notFound('Usuário não encontrado.');
+
+  const isShadow = shadow === true || type === 'shadow';
 
   const result = await db.sequelize.transaction(async (transaction) => {
     const record = await db.UserBan.create(
       {
         user_id: userId,
         banned_by: bannedBy || null,
-        type,
+        // O ENUM do UserBan só conhece 'temporary'/'permanent'; um shadowban é
+        // persistido como banimento temporário com o sinal em users.is_shadowbanned.
+        type: isShadow ? 'temporary' : type,
         scope,
         reason: reason || null,
         starts_at: new Date(),
@@ -138,8 +155,16 @@ async function ban(userId, { reason, type = 'temporary', scope = 'full', expires
       },
       { transaction }
     );
-    user.account_status = 'banned';
-    await user.save({ transaction });
+
+    if (isShadow) {
+      // Shadowban: usuário não percebe — não altera account_status.
+      await setShadowbanned(userId, true, transaction);
+    } else if (scope === 'full') {
+      user.account_status = 'banned';
+      await user.save({ transaction });
+    }
+    // Escopos parciais não tocam account_status (enforce por serviço).
+
     return record;
   });
 
@@ -155,11 +180,111 @@ async function unban(userId) {
       { is_active: false, lifted_at: new Date() },
       { where: { user_id: userId, is_active: true }, transaction }
     );
+    await setShadowbanned(userId, false, transaction);
     user.account_status = 'active';
     await user.save({ transaction });
   });
 
   return sanitize(user);
+}
+
+/* ----------------------------- Ban scopes / shadow ------------------------ */
+
+/**
+ * Retorna os escopos de banimento ATIVOS de um usuário (is_active e não expirados).
+ * @returns {Promise<string[]>} ex.: ['chat', 'selling']
+ */
+async function getActiveBanScopes(userId) {
+  const now = new Date();
+  const bans = await db.UserBan.findAll({
+    where: {
+      user_id: userId,
+      is_active: true,
+      [Op.or]: [{ expires_at: null }, { expires_at: { [Op.gt]: now } }],
+    },
+    attributes: ['scope'],
+  });
+  return [...new Set(bans.map((b) => b.scope))];
+}
+
+/**
+ * Lê o flag users.is_shadowbanned via SQL cru (a coluna existe por migration,
+ * mas não é declarada no model User — evita depender da edição do model).
+ */
+async function isShadowbanned(userId) {
+  const [rows] = await db.sequelize.query(
+    'SELECT is_shadowbanned FROM users WHERE id = :id LIMIT 1',
+    { replacements: { id: userId } }
+  );
+  return !!(rows && rows[0] && rows[0].is_shadowbanned);
+}
+
+/** Define users.is_shadowbanned via SQL cru (coluna não declarada no model). */
+async function setShadowbanned(userId, value, transaction) {
+  await db.sequelize.query(
+    'UPDATE users SET is_shadowbanned = :value, updated_at = NOW() WHERE id = :id',
+    { replacements: { id: userId, value: !!value }, transaction }
+  );
+}
+
+/* --------------------- Validação de documento (ReceitaWS) ----------------- */
+
+/**
+ * Valida o documento do vendedor.
+ * - person_type 'company' (tem CNPJ): consulta a ReceitaWS. Se a consulta funcionar
+ *   e situação !== 'ATIVA', lança CNPJ_INACTIVE. Se ATIVA, registra o resultado em
+ *   metadata.document_validation. Falha de rede/rate-limit não invalida o cadastro.
+ * - person_type 'individual' (CPF): a ReceitaWS gratuita NÃO cobre CPF, então
+ *   fazemos apenas validação sintática (dígitos verificadores) local.
+ *
+ * Complementar à verificação facial (KYC) existente — não a substitui.
+ */
+async function validateSellerDocument(userId) {
+  const user = await db.User.findByPk(userId);
+  if (!user) throw AppError.notFound('Usuário não encontrado.');
+
+  if (user.person_type === 'company') {
+    if (!user.cnpj) {
+      throw AppError.unprocessable('Usuário PJ sem CNPJ cadastrado.', 'CNPJ_MISSING');
+    }
+    if (!validators.isCNPJ(user.cnpj)) {
+      throw AppError.unprocessable('CNPJ inválido.', 'CNPJ_INVALID');
+    }
+
+    const lookup = await receitaws.lookupCnpj(user.cnpj);
+    if (!lookup.ok) {
+      // ReceitaWS indisponível/rate-limit: não invalida o cadastro, só informa.
+      return {
+        document: 'cnpj',
+        validated: false,
+        skipped: true,
+        reason: lookup.error,
+      };
+    }
+    if (lookup.situacao !== 'ATIVA') {
+      throw AppError.unprocessable('CNPJ não está ativo na Receita.', 'CNPJ_INACTIVE');
+    }
+
+    const metadata = { ...(user.metadata || {}) };
+    metadata.document_validation = {
+      document: 'cnpj',
+      situacao: lookup.situacao,
+      nome: lookup.nome || null,
+      validated_at: new Date().toISOString(),
+    };
+    await user.update({ metadata });
+
+    return { document: 'cnpj', validated: true, situacao: lookup.situacao, nome: lookup.nome || null };
+  }
+
+  // person_type 'individual' → CPF (somente validação sintática local).
+  if (!user.cpf) {
+    throw AppError.unprocessable('Usuário PF sem CPF cadastrado.', 'CPF_MISSING');
+  }
+  if (!validators.isCPF(user.cpf)) {
+    throw AppError.unprocessable('CPF inválido.', 'CPF_INVALID');
+  }
+  return { document: 'cpf', validated: true, note: 'CPF validado sintaticamente (Receita não cobre CPF).' };
 }
 
 /* ------------------------------- KYC / facial ----------------------------- */
@@ -251,6 +376,9 @@ module.exports = {
   removeRole,
   ban,
   unban,
+  getActiveBanScopes,
+  isShadowbanned,
+  validateSellerDocument,
   submitVerification,
   reviewVerification,
   myVerifications,

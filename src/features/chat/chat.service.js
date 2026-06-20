@@ -181,6 +181,19 @@ async function sendMessage({ chatId, senderId, content, type = 'text', attachmen
   }
   if (!asAdmin) checkRateLimit(senderId); // anti-spam: 5 msgs / 30s
 
+  // Enforce de banimento / shadowban (apenas para participantes, não admin).
+  let shadow = false;
+  if (!asAdmin) {
+    const userService = require('../user/user.service');
+    const banScopes = await userService.getActiveBanScopes(senderId);
+    if (banScopes.includes('chat') || banScopes.includes('full')) {
+      throw AppError.forbidden('Você está impedido de usar o chat.', 'BANNED_CHAT');
+    }
+    // Shadowban: NÃO bloqueia — a mensagem é gravada e devolvida ao próprio
+    // remetente, mas não é broadcastada ao outro participante.
+    shadow = await userService.isShadowbanned(senderId);
+  }
+
   const mod = await require('../../services/moderation.service').evaluate(content, 'chat');
   if (!mod.allowed) {
     throw AppError.unprocessable('Mensagem contém termos não permitidos', 'MESSAGE_BLOCKED');
@@ -188,6 +201,8 @@ async function sendMessage({ chatId, senderId, content, type = 'text', attachmen
 
   const now = new Date();
   const isFlagged = mod.moderationStatus === 'flagged';
+  // Mensagem de shadowban é marcada como 'flagged' (sombra) para a moderação.
+  const moderationStatus = shadow ? 'flagged' : mod.moderationStatus;
 
   const message = await db.sequelize.transaction(async (transaction) => {
     const created = await db.Message.create(
@@ -197,9 +212,9 @@ async function sendMessage({ chatId, senderId, content, type = 'text', attachmen
         type,
         content: mod.sanitized,
         attachments: attachments || null,
-        moderation_status: mod.moderationStatus,
+        moderation_status: moderationStatus,
         contains_blocked_words: mod.containsBlockedWords,
-        flagged_reason: mod.reason || null,
+        flagged_reason: shadow ? 'shadowban' : mod.reason || null,
       },
       { transaction }
     );
@@ -216,13 +231,21 @@ async function sendMessage({ chatId, senderId, content, type = 'text', attachmen
 
   const plain = typeof message.toJSON === 'function' ? message.toJSON() : message;
 
+  const io = require('../../realtime/io');
+
+  // SHADOWBAN: não broadcast a terceiros. Entrega só ao próprio remetente para
+  // que a UI dele mostre a mensagem como enviada.
+  if (shadow) {
+    io.emitToUser(senderId, 'message:new', plain);
+    return plain;
+  }
+
   // Destinatários: o outro participante; se for envio do admin (não-participante),
   // notifica ambos comprador e vendedor.
   const recipients = isParticipant(chat, senderId)
     ? [chat.buyer_id === senderId ? chat.seller_id : chat.buyer_id]
     : [chat.buyer_id, chat.seller_id];
 
-  const io = require('../../realtime/io');
   io.emitToChat(chatId, 'message:new', plain);
   recipients.filter(Boolean).forEach((recipientId) =>
     io.emitToUser(recipientId, 'chat:notify', {

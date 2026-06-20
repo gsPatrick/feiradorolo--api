@@ -10,6 +10,7 @@ const router = Router();
 
 // Perfil corrente e verificação facial (ordem antes de '/:id' para evitar colisão).
 router.patch('/me', auth, controller.updateMe);
+router.post('/me/validate-document', auth, controller.validateDocument);
 router.post('/me/verification', auth, controller.submitVerification);
 router.get('/me/verification', auth, controller.myVerifications);
 

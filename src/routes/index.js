@@ -28,6 +28,7 @@ router.use('/reviews', require('../features/review/review.routes'));
 router.use('/questions', require('../features/question/question.routes'));
 router.use('/orders', require('../features/order/order.routes'));
 router.use('/payments', require('../features/payment/payment.routes'));
+router.use('/plans', require('../features/plan/plan.routes'));
 router.use('/escrow', require('../features/escrow/escrow.routes'));
 router.use('/shipments', require('../features/shipment/shipment.routes'));
 router.use('/chats', require('../features/chat/chat.routes'));

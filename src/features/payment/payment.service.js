@@ -10,6 +10,7 @@
  * configurável: custódia da plataforma, captura tardia (auth→capture) ou dias
  * de liberação do MP. NADA é hardcoded — tudo vem de platform_settings.
  */
+const crypto = require('crypto');
 const db = require('../../models');
 const AppError = require('../../utils/AppError');
 const logger = require('../../utils/logger');
@@ -189,13 +190,82 @@ async function createOrderPayment(orderId, buyer, { token, payment_method_id, in
   return { payment: await payment.reload(), gateway: { id: mp.id, status: mp.status, status_detail: mp.status_detail } };
 }
 
+/**
+ * Valida a assinatura do webhook do Mercado Pago (HMAC-SHA256).
+ *
+ * O MP envia o header `x-signature` no formato `ts=<ts>,v1=<hash>` e um
+ * `x-request-id`. O manifesto assinado é:
+ *   id:<data.id>;request-id:<x-request-id>;ts:<ts>;
+ * e o hash é HMAC-SHA256(manifest, webhook_secret).
+ *
+ * Retorna true quando válido OU quando não há segredo configurado (mantém o
+ * comportamento atual — processa). Retorna false apenas quando há segredo e a
+ * assinatura é inválida/ausente.
+ */
+async function verifyWebhookSignature(headers = {}, query = {}, dataId) {
+  let secret = null;
+  try {
+    const gateway = await settings.activeGateway('mercado_pago');
+    secret = gateway && gateway.webhookSecret ? gateway.webhookSecret : null;
+  } catch (err) {
+    logger.warn('verifyWebhookSignature: falha ao obter o gateway ativo:', err.message);
+    return true; // sem como validar → não bloqueia (comportamento atual).
+  }
+  if (!secret) return true; // sem segredo configurado → processa normalmente.
+
+  const signature = headers['x-signature'] || headers['X-Signature'];
+  const requestId = headers['x-request-id'] || headers['X-Request-Id'];
+  if (!signature) {
+    logger.warn('verifyWebhookSignature: header x-signature ausente; ignorando webhook.');
+    return false;
+  }
+
+  // x-signature: "ts=1700000000,v1=abc123..."
+  let ts = null;
+  let v1 = null;
+  for (const part of String(signature).split(',')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    const value = part.slice(idx + 1).trim();
+    if (key === 'ts') ts = value;
+    else if (key === 'v1') v1 = value;
+  }
+  if (!ts || !v1) {
+    logger.warn('verifyWebhookSignature: x-signature malformado; ignorando webhook.');
+    return false;
+  }
+
+  // O id do manifesto é o data.id (preferencialmente da query, conforme docs do MP).
+  const id = query['data.id'] || (query.data && query.data.id) || dataId || '';
+  const manifest = `id:${id};request-id:${requestId || ''};ts:${ts};`;
+  const expected = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
+
+  let ok = false;
+  try {
+    ok =
+      expected.length === String(v1).length &&
+      crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(v1)));
+  } catch (err) {
+    ok = false;
+  }
+  if (!ok) {
+    logger.warn('verifyWebhookSignature: assinatura HMAC inválida; ignorando webhook.');
+  }
+  return ok;
+}
+
 /** Webhook do Mercado Pago. SEMPRE retorna objeto; controller responde 200. */
-async function handleWebhook(body = {}, query = {}) {
+async function handleWebhook(body = {}, query = {}, headers = {}) {
   const type = body.type || body.topic || query.type || query.topic;
   if (type && type !== 'payment') return { ignored: true, reason: `topic ${type}` };
 
   const mpPaymentId = (body.data && body.data.id) || body.id || query.id || query['data.id'] || null;
   if (!mpPaymentId) return { ignored: true, reason: 'no payment id' };
+
+  // Valida a assinatura HMAC quando o gateway tem webhook_secret configurado.
+  const signatureValid = await verifyWebhookSignature(headers, query, mpPaymentId);
+  if (!signatureValid) return { ignored: true, reason: 'invalid signature' };
 
   // Resolve o Payment local pelo pid embutido na notification_url (split-friendly).
   let payment = null;
@@ -290,6 +360,9 @@ async function _onApproved(payment) {
       emitToUser(order.buyer_id, 'payment:approved', { order_id: order.id, payment_id: payment.id });
       emitToUser(order.seller_id, 'order:paid', { order_id: order.id });
     });
+    // Cria o envio (pending) automaticamente para pedidos com frete. Best-effort:
+    // a etiqueta continua manual (trava KYC do vendedor em shipment.generateLabel).
+    await _ensureShipmentForOrder(payment.order_id);
   } else if (payment.purpose === 'highlight') {
     try {
       const productService = require('../product/product.service');
@@ -299,6 +372,64 @@ async function _onApproved(payment) {
     } catch (err) {
       logger.error('handleWebhook: falha ao ativar destaque:', err.message);
     }
+  } else if (payment.purpose === 'plan') {
+    await _activatePlanSubscription(payment);
+  }
+}
+
+/**
+ * Garante um Shipment (pending) para o pedido quando aplicável. Best-effort: não
+ * falha o webhook. Não gera etiqueta (isso continua manual, com a trava KYC).
+ */
+async function _ensureShipmentForOrder(orderId) {
+  try {
+    const order = await db.Order.findByPk(orderId);
+    if (!order) return;
+    // pickup não tem envio; requires_shipping === false desativa explicitamente.
+    if (order.delivery_method === 'pickup') return;
+    if (order.requires_shipping === false) return;
+
+    const existing = await db.Shipment.findOne({ where: { order_id: order.id } });
+    if (existing) return;
+
+    const shipmentService = require('../shipment/shipment.service');
+    await shipmentService.createForOrder(order.id, {}, null);
+  } catch (err) {
+    logger.error(`_ensureShipmentForOrder: falha ao criar envio do pedido ${orderId}:`, err.message);
+  }
+}
+
+/**
+ * Ativa a assinatura de plano correspondente ao pagamento aprovado. Espelha a
+ * ativação de destaque: define active + janela de vigência (duration_days).
+ * Best-effort: não falha o webhook.
+ */
+async function _activatePlanSubscription(payment) {
+  try {
+    const subscription = await db.PlanSubscription.findOne({
+      where: { payment_id: payment.id },
+      include: [{ model: db.Plan, as: 'plan' }],
+    });
+    if (!subscription) {
+      logger.warn(`_activatePlanSubscription: assinatura não encontrada para o pagamento ${payment.id}.`);
+      return;
+    }
+    if (subscription.status === 'active') return; // idempotente.
+
+    const durationDays =
+      subscription.plan && subscription.plan.duration_days ? Number(subscription.plan.duration_days) : null;
+    const startsAt = new Date();
+    const endsAt = durationDays
+      ? new Date(startsAt.getTime() + durationDays * 24 * 60 * 60 * 1000)
+      : null;
+
+    await subscription.update({ status: 'active', starts_at: startsAt, ends_at: endsAt });
+    emitToUser(subscription.user_id, 'plan:activated', {
+      subscription_id: subscription.id,
+      plan_id: subscription.plan_id,
+    });
+  } catch (err) {
+    logger.error('_activatePlanSubscription: falha ao ativar assinatura de plano:', err.message);
   }
 }
 
@@ -382,6 +513,7 @@ module.exports = {
   createCheckoutPreference,
   createOrderPayment,
   handleWebhook,
+  verifyWebhookSignature,
   captureForOrder,
   refund,
   getById,

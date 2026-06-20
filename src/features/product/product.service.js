@@ -122,6 +122,12 @@ async function getById(id, { incrementViews = false } = {}) {
 }
 
 async function create(sellerId, data = {}) {
+  // Enforce de banimento por escopo: vendedor banido de 'selling' ou 'full' não anuncia.
+  const banScopes = await require('../user/user.service').getActiveBanScopes(sellerId);
+  if (banScopes.includes('selling') || banScopes.includes('full')) {
+    throw AppError.forbidden('Você está impedido de anunciar.', 'BANNED_SELLING');
+  }
+
   if (!data.title) throw AppError.unprocessable('title é obrigatório.', 'PRODUCT_TITLE_REQUIRED');
 
   const price = data.price != null ? Number(data.price) : 0;
@@ -134,6 +140,28 @@ async function create(sellerId, data = {}) {
 
   const category = await db.Category.findByPk(data.category_id);
   if (!category) throw AppError.unprocessable('Categoria não encontrada.', 'CATEGORY_NOT_FOUND');
+
+  // Regras de negócio por categoria (configuração dinâmica) ----------------
+  // Imóveis/Veículos: a categoria exige um plano ativo para anunciar.
+  const pricing = await db.CategoryPricing.findOne({ where: { category_id: category.id } });
+  if (pricing && pricing.requires_plan) {
+    const activeSub = await db.PlanSubscription.findOne({
+      where: { user_id: sellerId, status: 'active' },
+    });
+    if (!activeSub) {
+      throw AppError.forbidden(
+        'Esta categoria exige um plano ativo para anunciar. Adquira um plano para publicar aqui.',
+        'PLAN_REQUIRED'
+      );
+    }
+  }
+  // Causa Animal e afins: geolocalização obrigatória (para plotar no mapa).
+  if (category.requires_geolocation && (data.latitude == null || data.longitude == null)) {
+    throw AppError.unprocessable(
+      'Esta categoria exige a sua localização (latitude e longitude).',
+      'GEO_REQUIRED'
+    );
+  }
 
   return db.Product.create({
     seller_id: sellerId,

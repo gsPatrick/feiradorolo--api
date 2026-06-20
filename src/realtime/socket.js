@@ -37,6 +37,9 @@ function initSocket(httpServer) {
       const decoded = jwtUtil.verify(token);
       const user = await db.User.findByPk(decoded.sub || decoded.id);
       if (!user) return next(new Error('USER_NOT_FOUND'));
+      // Banidos/suspensos não podem abrir o WebSocket (chat/notificações).
+      if (user.account_status === 'banned') return next(new Error('ACCOUNT_BANNED'));
+      if (user.account_status === 'suspended') return next(new Error('ACCOUNT_SUSPENDED'));
       socket.user = { id: user.id, name: user.name };
       next();
     } catch (e) {

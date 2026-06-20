@@ -41,6 +41,11 @@ const unban = catchAsync(async (req, res) => {
   return sendOk(res, user, 'Banimento revogado.');
 });
 
+const validateDocument = catchAsync(async (req, res) => {
+  const result = await userService.validateSellerDocument(req.user.id);
+  return sendOk(res, result, 'Documento validado.');
+});
+
 const submitVerification = catchAsync(async (req, res) => {
   const record = await userService.submitVerification(req.user.id, req.body);
   return sendCreated(res, record, 'Verificação enviada.');
@@ -64,6 +69,7 @@ module.exports = {
   removeRole,
   ban,
   unban,
+  validateDocument,
   submitVerification,
   myVerifications,
   reviewVerification,

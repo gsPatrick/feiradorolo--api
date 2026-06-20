@@ -19,7 +19,7 @@ const createPayment = catchAsync(async (req, res) => {
 
 /** Webhook do gateway — SEMPRE responde 200 para evitar reentrega. */
 const webhook = catchAsync(async (req, res) => {
-  const result = await paymentService.handleWebhook(req.body, req.query);
+  const result = await paymentService.handleWebhook(req.body, req.query, req.headers);
   return res.status(200).json({ received: true, ...result });
 });
 

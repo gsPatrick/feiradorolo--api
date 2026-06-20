@@ -26,4 +26,14 @@ const listPending = catchAsync(async (req, res) => {
   return paginated(res, rows, { page, limit, total });
 });
 
-module.exports = { getByOrder, releaseManual, releaseByToken, listPending };
+const freeze = catchAsync(async (req, res) => {
+  const escrow = await escrowService.adminSetHold(req.params.orderId, true, { adminId: req.user.id, reason: req.body.reason });
+  return sendOk(res, escrow, 'Custódia congelada.');
+});
+
+const unfreeze = catchAsync(async (req, res) => {
+  const escrow = await escrowService.adminSetHold(req.params.orderId, false, { adminId: req.user.id });
+  return sendOk(res, escrow, 'Custódia descongelada.');
+});
+
+module.exports = { getByOrder, releaseManual, releaseByToken, listPending, freeze, unfreeze };

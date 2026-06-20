@@ -238,6 +238,44 @@ async function listHeld({ page = 1, limit = 20 } = {}) {
   return { rows, total: count };
 }
 
+/**
+ * Congelamento manual pelo admin. Impede a liberação (automática ou pelo
+ * comprador) de uma custódia retida. Usa o status `disputed` (que o cron
+ * ignora). `hold=false` descongela, desde que não exista disputa real aberta.
+ */
+async function adminSetHold(orderId, hold, { adminId, reason } = {}) {
+  return db.sequelize.transaction(async (tx) => {
+    const escrow = await db.Escrow.findOne({ where: { order_id: orderId }, transaction: tx });
+    if (!escrow) throw AppError.notFound('Custódia não encontrada.', 'ESCROW_NOT_FOUND');
+
+    if (hold) {
+      if (escrow.status !== 'held') {
+        throw AppError.conflict('Só é possível congelar uma custódia retida.', 'ESCROW_NOT_HELD');
+      }
+      await escrow.update(
+        { status: 'disputed', released_by: adminId || null, release_reason: `admin_hold: ${reason || 'congelado pelo admin'}` },
+        { transaction: tx }
+      );
+      emitToUser(escrow.seller_id, 'escrow:frozen', { order_id: orderId });
+      return escrow;
+    }
+
+    if (escrow.status !== 'disputed') {
+      throw AppError.conflict('A custódia não está congelada.', 'ESCROW_NOT_FROZEN');
+    }
+    const openDispute = await db.Dispute.count({
+      where: { order_id: orderId, status: { [Op.in]: ['open', 'under_review', 'awaiting_response'] } },
+      transaction: tx,
+    });
+    if (openDispute > 0) {
+      throw AppError.conflict('Há uma disputa aberta neste pedido — resolva a disputa primeiro.', 'DISPUTE_OPEN');
+    }
+    await escrow.update({ status: 'held', released_by: null, release_reason: null }, { transaction: tx });
+    emitToUser(escrow.seller_id, 'escrow:unfrozen', { order_id: orderId });
+    return escrow;
+  });
+}
+
 module.exports = {
   createForOrder,
   releaseManual,
@@ -245,4 +283,5 @@ module.exports = {
   releaseDue,
   getByOrder,
   listHeld,
+  adminSetHold,
 };

@@ -66,6 +66,8 @@ module.exports = (sequelize, DataTypes) => {
       },
       is_admin: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       admin_role: { type: DataTypes.ENUM('admin', 'moderator'), allowNull: true },
+      // Shadowban: conteúdo do usuário fica oculto a terceiros sem ele saber.
+      is_shadowbanned: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
 
       account_status: {
         type: DataTypes.ENUM('active', 'pending', 'suspended', 'banned'),
