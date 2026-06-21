@@ -17,11 +17,18 @@ const list = catchAsync(async (req, res) => {
     slug: req.query.slug,
     seller_id: req.query.seller_id,
     status: req.query.status,
+    q: req.query.q,
     search: req.query.search,
     highlight_tier: req.query.highlight_tier,
+    sort: req.query.sort,
+    price_min: req.query.price_min,
+    price_max: req.query.price_max,
+    condition: req.query.condition,
+    state: req.query.state,
     lat: req.query.lat,
     lng: req.query.lng,
     radius: req.query.radius,
+    facets: req.query.facets === '1' || req.query.facets === 'true',
   };
 
   // Listagem pública: força apenas anúncios ativos a menos que seja admin.
@@ -29,9 +36,15 @@ const list = catchAsync(async (req, res) => {
     params.status = undefined;
   }
 
-  const { rows, total } = await service.list(params);
+  const { rows, total, facets } = await service.list(params);
   const page = Number(params.page) || 1;
   const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
+
+  // Com ?facets=1 devolve um objeto rico (para a página de busca/filtros);
+  // sem facetas mantém o formato paginado (array) para os demais consumidores.
+  if (params.facets) {
+    return sendOk(res, { products: rows, total, page, limit, facets });
+  }
   return paginated(res, rows, { page, limit, total });
 });
 

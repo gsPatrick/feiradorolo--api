@@ -43,12 +43,66 @@ function sellerInclude() {
  * Listagem paginada de produtos.
  * Pública (sem status explícito) mostra apenas 'active'.
  */
+// Expressão do preço efetivo (promocional quando houver).
+const PRICE_EXPR = () => db.sequelize.literal('COALESCE(promotional_price, price)');
+// Título sem acento (para busca tolerante a acento).
+const TITLE_UNACCENT =
+  "translate(lower(title), 'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ', 'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC')";
+
+/** Remove acentos e baixa caixa de um termo (lado JS). */
+function unaccent(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+/** Ordenação por `sort`. */
+function buildOrder(sort) {
+  switch (sort) {
+    case 'recent':
+      return [['created_at', 'DESC']];
+    case 'price_asc':
+      return [[PRICE_EXPR(), 'ASC']];
+    case 'price_desc':
+      return [[PRICE_EXPR(), 'DESC']];
+    case 'best_selling':
+      return [['favorites_count', 'DESC'], ['views_count', 'DESC'], ['created_at', 'DESC']];
+    default: // relevância: destaques primeiro, depois mais recentes
+      return [
+        [db.sequelize.literal("CASE highlight_tier WHEN 'diamond' THEN 3 WHEN 'gold' THEN 2 WHEN 'silver' THEN 1 ELSE 0 END"), 'DESC'],
+        ['favorites_count', 'DESC'],
+        ['published_at', 'DESC'],
+        ['created_at', 'DESC'],
+      ];
+  }
+}
+
+/** Facetas (categorias, faixa de preço, condição, estado) para a sidebar. */
+async function computeFacets(where) {
+  const COUNT = [db.sequelize.fn('COUNT', db.sequelize.col('id')), 'count'];
+  const [agg, conds, states, cats] = await Promise.all([
+    db.Product.findOne({ where, attributes: [[db.sequelize.fn('MIN', PRICE_EXPR()), 'min'], [db.sequelize.fn('MAX', PRICE_EXPR()), 'max']], raw: true }),
+    db.Product.findAll({ where, attributes: ['condition', COUNT], group: ['condition'], raw: true }),
+    db.Product.findAll({ where, attributes: ['state', COUNT], group: ['state'], raw: true }),
+    db.Product.findAll({ where, attributes: ['category_id', COUNT], group: ['category_id'], order: [[db.sequelize.fn('COUNT', db.sequelize.col('id')), 'DESC']], limit: 12, raw: true }),
+  ]);
+  const catIds = cats.map((c) => c.category_id).filter(Boolean);
+  const catRows = catIds.length ? await db.Category.findAll({ where: { id: catIds }, attributes: ['id', 'name'], raw: true }) : [];
+  const nameById = Object.fromEntries(catRows.map((c) => [c.id, c.name]));
+  return {
+    priceMin: agg && agg.min != null ? Math.floor(Number(agg.min)) : 0,
+    priceMax: agg && agg.max != null ? Math.ceil(Number(agg.max)) : 0,
+    conditions: conds.filter((c) => c.condition).map((c) => ({ value: c.condition, count: Number(c.count) })),
+    states: states.filter((s) => s.state).map((s) => ({ value: s.state, count: Number(s.count) })),
+    categories: cats.filter((c) => c.category_id).map((c) => ({ id: c.category_id, name: nameById[c.category_id] || '—', count: Number(c.count) })),
+  };
+}
+
 async function list(params = {}) {
   const page = Math.max(1, Number(params.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
   const offset = (page - 1) * limit;
 
   const where = {};
+  const and = [];
 
   // Categoria por id ou slug.
   if (params.category_id) {
@@ -59,20 +113,28 @@ async function list(params = {}) {
   }
 
   if (params.seller_id) where.seller_id = params.seller_id;
-
-  if (params.status) {
-    where.status = params.status;
-  } else {
-    where.status = 'active';
-  }
-
+  where.status = params.status || 'active';
   if (params.highlight_tier) where.highlight_tier = params.highlight_tier;
 
-  if (params.search) {
-    where.title = { [Op.iLike]: `%${params.search}%` };
+  // Busca tolerante a acento (translate no SQL + termo sem acento no JS).
+  const term = (params.q != null ? params.q : params.search) || '';
+  if (String(term).trim()) {
+    and.push(db.sequelize.where(db.sequelize.literal(TITLE_UNACCENT), { [Op.iLike]: `%${unaccent(term)}%` }));
   }
 
-  // Filtro geográfico simples por bounding box (lat/lng/radius em km).
+  // Faixa de preço (sobre o preço efetivo).
+  if (params.price_min != null && params.price_min !== '') and.push(db.sequelize.where(PRICE_EXPR(), { [Op.gte]: Number(params.price_min) }));
+  if (params.price_max != null && params.price_max !== '') and.push(db.sequelize.where(PRICE_EXPR(), { [Op.lte]: Number(params.price_max) }));
+
+  // Condição (nova/usada/recondicionada) — aceita lista separada por vírgula.
+  if (params.condition) {
+    const conds = String(params.condition).split(',').map((s) => s.trim()).filter(Boolean);
+    if (conds.length) where.condition = { [Op.in]: conds };
+  }
+  // Estado (UF).
+  if (params.state) where.state = String(params.state).toUpperCase();
+
+  // Filtro geográfico por bounding box (lat/lng/radius em km).
   if (params.lat != null && params.lng != null && params.radius != null) {
     const lat = Number(params.lat);
     const lng = Number(params.lng);
@@ -85,26 +147,27 @@ async function list(params = {}) {
     }
   }
 
+  if (and.length) where[Op.and] = and;
+
   const { rows, count } = await db.Product.findAndCountAll({
     where,
     include: [sellerInclude(), { model: db.Category, as: 'category' }],
-    order: [
-      // Destaques primeiro (diamond > gold > silver > none), depois mais recentes.
-      [
-        db.sequelize.literal(
-          "CASE highlight_tier WHEN 'diamond' THEN 3 WHEN 'gold' THEN 2 WHEN 'silver' THEN 1 ELSE 0 END"
-        ),
-        'DESC',
-      ],
-      ['published_at', 'DESC'],
-      ['created_at', 'DESC'],
-    ],
+    order: buildOrder(params.sort),
     limit,
     offset,
     distinct: true,
   });
 
-  return { rows, total: count };
+  let facets = null;
+  if (params.facets) {
+    try {
+      facets = await computeFacets(where);
+    } catch (e) {
+      facets = null;
+    }
+  }
+
+  return { rows, total: count, facets };
 }
 
 /** Detalhe por id; incrementa views_count quando acesso público (`incrementViews`). */
