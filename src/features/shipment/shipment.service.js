@@ -18,9 +18,44 @@ const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
  * @param {object} p { from_zip, to_zip, products:[{ weight, width, height, length, quantity, insurance_value }],
  *   order_amount, category_ids } — order_amount/category_ids habilitam as regras de frete grátis.
  */
-async function quote({ from_zip, to_zip, products, order_amount, category_ids } = {}) {
-  if (!from_zip || !to_zip) {
-    throw AppError.unprocessable('from_zip e to_zip são obrigatórios.', 'SHIPPING_MISSING_ZIP');
+async function quote({ from_zip, to_zip, products, order_amount, category_ids, product_id, quantity } = {}) {
+  // Cotação direto pelo produto (página do produto): deriva origem (CEP do
+  // vendedor → CEP de origem padrão) e dimensões/peso do próprio produto.
+  if (product_id && (!from_zip || !Array.isArray(products) || !products.length)) {
+    const product = await db.Product.findByPk(product_id, {
+      include: [{ model: db.User, as: 'seller', attributes: ['zip_code'] }],
+    });
+    if (product) {
+      const cfgOrigin = await settings.shipping();
+      if (!from_zip) {
+        from_zip = (product.seller && product.seller.zip_code) || (cfgOrigin && cfgOrigin.default_origin_zip) || null;
+      }
+      if (!Array.isArray(products) || !products.length) {
+        const dim = product.dimensions || {};
+        products = [
+          {
+            weight: (Number(product.weight_grams) || 500) / 1000,
+            height: Number(dim.height) || 4,
+            width: Number(dim.width) || 12,
+            length: Number(dim.length) || 17,
+            insurance_value: Number(product.promotional_price != null ? product.promotional_price : product.price) || 0,
+            quantity: Math.max(1, Number(quantity) || 1),
+          },
+        ];
+      }
+      if (order_amount == null) order_amount = Number(product.promotional_price != null ? product.promotional_price : product.price) || 0;
+      if (!category_ids && product.category_id) category_ids = [product.category_id];
+    }
+  }
+
+  if (!to_zip) {
+    throw AppError.unprocessable('Informe o CEP de destino.', 'SHIPPING_MISSING_ZIP');
+  }
+  if (!from_zip) {
+    throw AppError.unprocessable(
+      'CEP de origem não definido. Configure o CEP de origem no painel (Frete) ou no perfil do vendedor.',
+      'SHIPPING_NO_ORIGIN'
+    );
   }
   if (!Array.isArray(products) || !products.length) {
     throw AppError.unprocessable('Informe ao menos um produto para cotação.', 'SHIPPING_NO_PRODUCTS');

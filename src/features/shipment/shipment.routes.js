@@ -7,7 +7,8 @@ const controller = require('./shipment.controller');
 
 const router = Router();
 
-router.post('/quote', auth, controller.quote);
+// Cotação de frete é pública (a página do produto calcula sem login).
+router.post('/quote', controller.quote);
 // Apenas o vendedor do pedido (checado no service) pode criar o envio.
 router.post('/order/:orderId', auth, controller.createForOrder);
 router.post('/:id/label', auth, controller.generateLabel);
