@@ -134,10 +134,11 @@ async function createPayment(p) {
       ...(p.payerIdentification ? { identification: p.payerIdentification } : {}),
     },
     external_reference: p.externalReference,
-    notification_url: p.notificationUrl,
     metadata: p.metadata || {},
     ...(p.advancedOptions || {}),
   };
+  // notification_url só se for URL pública válida (o MP recusa localhost/null).
+  if (p.notificationUrl && /^https:\/\//i.test(p.notificationUrl)) body.notification_url = p.notificationUrl;
   if (p.token) body.token = p.token;
   if (p.installments != null) body.installments = Number(p.installments);
   if (p.applicationFee != null) body.application_fee = Number(p.applicationFee);

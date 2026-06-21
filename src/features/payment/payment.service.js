@@ -47,8 +47,11 @@ async function splitConfig() {
 }
 
 async function notificationUrl(paymentId) {
-  const base = (await settings.get('app.public_url', '')) || 'http://localhost:3333';
-  return `${base}/api/v1/payments/webhook?pid=${paymentId}`;
+  const base = (await settings.get('app.public_url', '')) || '';
+  // O MP exige URL pública https válida. Sem isso, retorna null e o pagamento
+  // é criado sem webhook (o status atualiza via polling no front).
+  if (!/^https:\/\/[^/]+/i.test(base)) return null;
+  return `${base.replace(/\/$/, '')}/api/v1/payments/webhook?pid=${paymentId}`;
 }
 
 /** Resolve o token do vendedor para o split (ou null se não vinculado). */
