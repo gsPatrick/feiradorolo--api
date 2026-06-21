@@ -224,7 +224,13 @@ function assertCanView(order, user) {
 async function getById(id, user) {
   const order = await db.Order.findByPk(id, {
     include: [
-      { model: db.OrderItem, as: 'items' },
+      {
+        model: db.OrderItem,
+        as: 'items',
+        include: [{ model: db.Product, as: 'product', attributes: ['id', 'cover_image_url', 'images'], required: false }],
+      },
+      { model: db.User, as: 'buyer', attributes: ['id', 'name', 'email', 'phone'] },
+      { model: db.User, as: 'seller', attributes: ['id', 'name'] },
       { model: db.Payment, as: 'payments' },
       { model: db.Escrow, as: 'escrow' },
       { model: db.Shipment, as: 'shipments' },
