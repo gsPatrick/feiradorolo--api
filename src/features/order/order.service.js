@@ -166,7 +166,14 @@ async function listForUser(userId, { role = 'buyer', page = 1, limit = 20, statu
   const offset = (Number(page) - 1) * Number(limit);
   const { rows, count } = await db.Order.findAndCountAll({
     where,
-    include: [{ model: db.OrderItem, as: 'items' }],
+    include: [
+      {
+        model: db.OrderItem,
+        as: 'items',
+        // Inclui a imagem do produto para o front exibir na lista de pedidos.
+        include: [{ model: db.Product, as: 'product', attributes: ['id', 'cover_image_url', 'images'], required: false }],
+      },
+    ],
     order: [['created_at', 'DESC']],
     limit: Number(limit),
     offset,
@@ -182,7 +189,14 @@ async function listAll({ page = 1, limit = 20, status } = {}) {
   const offset = (Number(page) - 1) * Number(limit);
   const { rows, count } = await db.Order.findAndCountAll({
     where,
-    include: [{ model: db.OrderItem, as: 'items' }],
+    include: [
+      {
+        model: db.OrderItem,
+        as: 'items',
+        // Inclui a imagem do produto para o front exibir na lista de pedidos.
+        include: [{ model: db.Product, as: 'product', attributes: ['id', 'cover_image_url', 'images'], required: false }],
+      },
+    ],
     order: [['created_at', 'DESC']],
     limit: Number(limit),
     offset,
