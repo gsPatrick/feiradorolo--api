@@ -48,4 +48,9 @@ const resolve = catchAsync(async (req, res) => {
   return sendOk(res, dispute, 'Disputa resolvida.');
 });
 
-module.exports = { requestReturn, listMine, getById, approveReturn, rejectReturn, listAdmin, resolve };
+const returnLabel = catchAsync(async (req, res) => {
+  const dispute = await disputeService.regenerateReturnLabel(req.params.id, req.user);
+  return sendOk(res, dispute, 'Etiqueta de devolução gerada.');
+});
+
+module.exports = { requestReturn, listMine, getById, approveReturn, rejectReturn, listAdmin, resolve, returnLabel };

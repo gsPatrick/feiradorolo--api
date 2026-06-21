@@ -267,10 +267,156 @@ async function getById(id) {
   return shipment;
 }
 
+/** Normaliza o CEP (só dígitos). */
+function normalizeZip(zip) {
+  return zip ? String(zip).replace(/\D/g, '') : null;
+}
+
+/**
+ * Gera a ETIQUETA DE DEVOLUÇÃO (frete reverso): origem = COMPRADOR (endereço de
+ * entrega em order.metadata.shipping_address), destino = VENDEDOR (cadastro do
+ * User do seller). Cota o reverso, escolhe a opção mais barata (ou reusa a
+ * service do envio original, se presente em order.metadata.shipping_option),
+ * cria um Shipment marcado como retorno (payload.reversed = true) e gera a
+ * etiqueta reusando o fluxo addToCart→checkout→generate→print.
+ *
+ * Quem paga o reverso é o vendedor (arrependimento/defeito) — apenas registrado;
+ * sem cobrança extra no fluxo atual.
+ *
+ * @param {string} orderId
+ * @returns {Promise<{label_url, tracking_code, service_name, price, shipment_id}>}
+ */
+async function generateReturnLabel(orderId) {
+  const order = await db.Order.findByPk(orderId, {
+    include: [
+      { model: db.User, as: 'seller' },
+      { model: db.OrderItem, as: 'items', include: [{ model: db.Product, as: 'product' }] },
+    ],
+  });
+  if (!order) throw AppError.notFound('Pedido não encontrado.', 'ORDER_NOT_FOUND');
+
+  const seller = order.seller;
+  if (!seller) throw AppError.notFound('Vendedor do pedido não encontrado.', 'ORDER_SELLER_NOT_FOUND');
+
+  const metadata = order.metadata || {};
+  const buyerAddr = metadata.shipping_address || null;
+  if (!buyerAddr || !(buyerAddr.cep || buyerAddr.zip_code)) {
+    throw AppError.unprocessable(
+      'Endereço de entrega do comprador indisponível para gerar a devolução.',
+      'RETURN_MISSING_BUYER_ADDRESS'
+    );
+  }
+  if (!seller.zip_code) {
+    throw AppError.unprocessable(
+      'O vendedor não possui endereço (CEP) cadastrado para receber a devolução.',
+      'RETURN_MISSING_SELLER_ADDRESS'
+    );
+  }
+
+  const buyerZip = normalizeZip(buyerAddr.cep || buyerAddr.zip_code);
+  const sellerZip = normalizeZip(seller.zip_code);
+
+  // from = COMPRADOR (origem da devolução); to = VENDEDOR (destino).
+  const fromAddress = {
+    name: buyerAddr.recipient || order.order_number || 'Comprador',
+    postal_code: buyerZip,
+    zip_code: buyerZip,
+    address: buyerAddr.street || null,
+    street: buyerAddr.street || null,
+    number: buyerAddr.number || null,
+    complement: buyerAddr.complement || null,
+    district: buyerAddr.neighborhood || null,
+    neighborhood: buyerAddr.neighborhood || null,
+    city: buyerAddr.city || null,
+    state_abbr: buyerAddr.state || null,
+    state: buyerAddr.state || null,
+  };
+  const toAddress = {
+    name: seller.name || 'Vendedor',
+    postal_code: sellerZip,
+    zip_code: sellerZip,
+    address: seller.street || null,
+    street: seller.street || null,
+    number: seller.number || null,
+    complement: seller.complement || null,
+    district: seller.neighborhood || null,
+    neighborhood: seller.neighborhood || null,
+    city: seller.city || null,
+    state_abbr: seller.state || null,
+    state: seller.state || null,
+  };
+
+  // Dimensões/peso a partir dos produtos do pedido (defaults se faltar).
+  const items = Array.isArray(order.items) ? order.items : [];
+  const products = items.length
+    ? items.map((it) => {
+        const p = it.product || {};
+        const dim = p.dimensions || {};
+        return {
+          weight: (Number(p.weight_grams) || 500) / 1000,
+          height: Number(dim.height) || 4,
+          width: Number(dim.width) || 12,
+          length: Number(dim.length) || 16,
+          insurance_value: Number(it.unit_price) || 0,
+          quantity: Math.max(1, Number(it.quantity) || 1),
+        };
+      })
+    : [{ weight: 0.5, height: 4, width: 12, length: 16, insurance_value: Number(order.total) || 0, quantity: 1 }];
+
+  // Cotação do reverso (lança SHIPPING_NOT_CONFIGURED se o ME não estiver pronto).
+  const options = await quote({
+    from_zip: buyerZip,
+    to_zip: sellerZip,
+    products,
+    order_amount: Number(order.total) || 0,
+  });
+  if (!Array.isArray(options) || !options.length) {
+    throw AppError.unprocessable(
+      'Nenhuma opção de frete reverso disponível para esses endereços.',
+      'RETURN_NO_SHIPPING_OPTION'
+    );
+  }
+
+  // Reusa a service do envio original, se existir; senão a mais barata.
+  const originalCode = metadata.shipping_option && metadata.shipping_option.service_code
+    ? String(metadata.shipping_option.service_code)
+    : null;
+  let chosen = originalCode ? options.find((o) => String(o.service_code) === originalCode) : null;
+  if (!chosen) {
+    chosen = options.reduce((a, b) => (Number(b.price) < Number(a.price) ? b : a));
+  }
+
+  // Cria o Shipment de retorno (endereços invertidos), marcado como reversed.
+  const shipment = await db.Shipment.create({
+    order_id: order.id,
+    provider: 'melhor_envio',
+    service_code: chosen.service_code || null,
+    service_name: `Retorno: ${chosen.service_name || ''}`.trim(),
+    cost: chosen.price != null ? round2(chosen.price) : null,
+    status: 'pending',
+    from_address: fromAddress,
+    to_address: toAddress,
+    dimensions: products[0],
+    payload: { reversed: true, return_label: true, base_price: chosen.base_price, paid_by: 'seller' },
+  });
+
+  // Gera a etiqueta reusando o fluxo padrão (addToCart→checkout→generate→print).
+  const labeled = await generateLabel(shipment.id);
+
+  return {
+    shipment_id: labeled.id,
+    label_url: labeled.label_url || null,
+    tracking_code: labeled.tracking_code || null,
+    service_name: chosen.service_name || null,
+    price: chosen.price != null ? round2(chosen.price) : null,
+  };
+}
+
 module.exports = {
   quote,
   createForOrder,
   generateLabel,
+  generateReturnLabel,
   track,
   getById,
 };

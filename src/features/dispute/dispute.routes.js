@@ -20,5 +20,7 @@ router.get('/:id', auth, controller.getById);
 // Vendedor.
 router.post('/:id/approve', auth, controller.approveReturn);
 router.post('/:id/reject', auth, controller.rejectReturn);
+// (Re)gera a etiqueta de devolução (frete reverso). Vendedor envolvido/admin — checado no service.
+router.post('/:id/return-label', auth, controller.returnLabel);
 
 module.exports = router;

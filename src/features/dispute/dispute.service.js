@@ -16,6 +16,7 @@ const logger = require('../../utils/logger');
 const mercadopago = require('../../providers/mercado-pago/mercadopago.provider');
 const accountService = require('../payment/payment-account.service');
 const notification = require('../notification/notification.service');
+const shipmentService = require('../shipment/shipment.service');
 
 const REASONS = ['not_received', 'not_as_described', 'damaged', 'fraud', 'other'];
 const OPEN_STATUSES = ['open', 'under_review', 'awaiting_response'];
@@ -156,6 +157,44 @@ async function rejectReturn(disputeId, seller, { notes } = {}) {
   return dispute;
 }
 
+/* --------------------------- etiqueta de devolução ------------------------- */
+
+/**
+ * Gera a etiqueta de devolução (frete reverso) para o pedido e persiste o
+ * resultado em dispute.evidence.return_label. Best-effort por padrão: o
+ * chamador decide se propaga o erro (endpoint manual) ou não (pós-reembolso).
+ * @returns {Promise<object|null>} { url, tracking, service } ou null se falhar.
+ */
+async function _generateReturnLabel(order, dispute, { rethrow = false } = {}) {
+  try {
+    const result = await shipmentService.generateReturnLabel(order.id);
+    const returnLabel = {
+      url: result.label_url || null,
+      tracking: result.tracking_code || null,
+      service: result.service_name || null,
+      price: result.price != null ? result.price : null,
+      shipment_id: result.shipment_id || null,
+      generated_at: new Date().toISOString(),
+    };
+    const evidence = dispute.evidence || {};
+    await dispute.update({ evidence: { ...evidence, return_label: returnLabel } });
+
+    notifySafe(order.buyer_id, {
+      type: 'dispute',
+      channel: 'in_app',
+      title: 'Etiqueta de devolução disponível',
+      body: `A etiqueta de devolução do pedido ${order.order_number} já está disponível. Poste o produto para o vendedor.`,
+      data: { order_id: order.id, dispute_id: dispute.id, return_label_url: returnLabel.url },
+    });
+
+    return returnLabel;
+  } catch (err) {
+    if (rethrow) throw err;
+    logger.warn(`_generateReturnLabel: falha ao gerar etiqueta de devolução do pedido ${order.id}:`, err.message);
+    return null;
+  }
+}
+
 /* ------------------------------- reembolso (interno) ----------------------- */
 
 /**
@@ -232,6 +271,10 @@ async function _refund(order, dispute, { reason, amount = null } = {}) {
     data: { order_id: order.id, dispute_id: dispute.id },
   });
 
+  // Best-effort: gera a etiqueta de devolução (frete reverso, pago pelo vendedor)
+  // DEPOIS do estorno bem-sucedido. Falha aqui NÃO reverte o reembolso.
+  await _generateReturnLabel(order, dispute);
+
   return dispute;
 }
 
@@ -305,6 +348,29 @@ async function resolve(disputeId, admin, { resolution, amount, notes } = {}) {
   return db.Dispute.findByPk(dispute.id);
 }
 
+/* ----------------------- etiqueta de devolução (manual) -------------------- */
+
+/**
+ * (Re)gera manualmente a etiqueta de devolução de uma disputa. Acessível ao
+ * vendedor envolvido (against_id) ou a um admin. Propaga o erro (rethrow) para
+ * que o chamador veja a falha — útil para regenerar quando a automática falhou.
+ */
+async function regenerateReturnLabel(disputeId, user) {
+  const dispute = await db.Dispute.findByPk(disputeId);
+  if (!dispute) throw AppError.notFound('Disputa não encontrada.', 'DISPUTE_NOT_FOUND');
+
+  const isSeller = dispute.against_id === user.id;
+  if (!isSeller && !user.is_admin) {
+    throw AppError.forbidden('Apenas o vendedor envolvido ou um admin pode gerar a etiqueta de devolução.', 'NOT_ALLOWED');
+  }
+
+  const order = await db.Order.findByPk(dispute.order_id);
+  if (!order) throw AppError.notFound('Pedido não encontrado.', 'ORDER_NOT_FOUND');
+
+  await _generateReturnLabel(order, dispute, { rethrow: true });
+  return db.Dispute.findByPk(dispute.id);
+}
+
 /* --------------------------------- consultas ------------------------------- */
 
 const DISPUTE_INCLUDE = [
@@ -357,5 +423,6 @@ module.exports = {
   listMine,
   getById,
   listAdmin,
+  regenerateReturnLabel,
   _refund,
 };
