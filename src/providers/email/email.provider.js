@@ -15,6 +15,7 @@ const logger = require('../../utils/logger');
 
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 const ZEPTO_URL = 'https://api.zeptomail.com/v1.1/email';
+const RESEND_URL = 'https://api.resend.com/emails';
 
 /** Substitui {{var}} no texto pelos valores fornecidos. */
 function render(template, vars = {}) {
@@ -26,20 +27,28 @@ async function loadTemplate(key, channel = 'email', locale = 'pt-BR') {
   return db.MessageTemplate.findOne({ where: { key, channel, locale, is_active: true } });
 }
 
-/** Resolve o provedor ativo (brevo > zoho) e suas credenciais — só do banco. */
+/** Lê a API key tolerando camelCase (apiKey) ou snake_case (api_key). */
+function apiKeyOf(cfg) {
+  return cfg && cfg.credentials && (cfg.credentials.apiKey || cfg.credentials.api_key);
+}
+
+/** Resolve o provedor ativo (resend > brevo > zoho) e suas credenciais — só do banco. */
 async function resolveProvider() {
+  const resend = await settings.integration('resend');
+  if (apiKeyOf(resend)) return { name: 'resend', cfg: resend };
   const brevo = await settings.integration('brevo');
-  if (brevo && brevo.credentials && brevo.credentials.apiKey) return { name: 'brevo', cfg: brevo };
+  if (apiKeyOf(brevo)) return { name: 'brevo', cfg: brevo };
   const zoho = await settings.integration('zoho');
-  if (zoho && zoho.credentials && zoho.credentials.apiKey) return { name: 'zoho', cfg: zoho };
+  if (apiKeyOf(zoho)) return { name: 'zoho', cfg: zoho };
   return null;
 }
 
-/** Remetente: config da integração ou settings globais mail.from_* (admin). */
+/** Remetente: config da integração (camel ou snake) ou settings globais mail.from_* (admin). */
 async function senderFrom(cfg) {
+  const c = (cfg && cfg.config) || {};
   return {
-    email: (cfg.config && cfg.config.senderEmail) || (await settings.get('mail.from_email', 'no-reply@feiradorolo.com')),
-    name: (cfg.config && cfg.config.senderName) || (await settings.get('mail.from_name', 'Feira do Rolo')),
+    email: c.senderEmail || c.sender_email || (await settings.get('mail.from_email', 'no-reply@feiradorolo.com')),
+    name: c.senderName || c.sender_name || (await settings.get('mail.from_name', 'Feira do Rolo')),
   };
 }
 
@@ -48,7 +57,7 @@ async function sendBrevo(cfg, { to, toName, subject, html }) {
   const { data } = await axios.post(
     BREVO_URL,
     { sender, to: [{ email: to, name: toName || undefined }], subject, htmlContent: html || '<p></p>' },
-    { headers: { 'api-key': cfg.credentials.apiKey, 'Content-Type': 'application/json', accept: 'application/json' }, timeout: 15000 }
+    { headers: { 'api-key': apiKeyOf(cfg), 'Content-Type': 'application/json', accept: 'application/json' }, timeout: 15000 }
   );
   return { sent: true, provider: 'brevo', messageId: data.messageId };
 }
@@ -63,9 +72,24 @@ async function sendZoho(cfg, { to, toName, subject, html }) {
       subject,
       htmlbody: html || '<p></p>',
     },
-    { headers: { Authorization: `Zoho-enczapikey ${cfg.credentials.apiKey}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+    { headers: { Authorization: `Zoho-enczapikey ${apiKeyOf(cfg)}`, 'Content-Type': 'application/json' }, timeout: 15000 }
   );
   return { sent: true, provider: 'zoho', data };
+}
+
+async function sendResend(cfg, { to, toName, subject, html }) {
+  const sender = await senderFrom(cfg);
+  const { data } = await axios.post(
+    RESEND_URL,
+    {
+      from: `${sender.name} <${sender.email}>`,
+      to: [to],
+      subject,
+      html: html || '<p></p>',
+    },
+    { headers: { Authorization: `Bearer ${apiKeyOf(cfg)}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+  );
+  return { sent: true, provider: 'resend', messageId: data && data.id };
 }
 
 /**
@@ -90,7 +114,9 @@ async function sendEmail({ to, subject, html, templateKey, vars = {}, toName }) 
   }
 
   const args = { to, toName, subject: finalSubject, html: finalHtml };
-  return provider.name === 'zoho' ? sendZoho(provider.cfg, args) : sendBrevo(provider.cfg, args);
+  if (provider.name === 'resend') return sendResend(provider.cfg, args);
+  if (provider.name === 'zoho') return sendZoho(provider.cfg, args);
+  return sendBrevo(provider.cfg, args);
 }
 
 module.exports = { sendEmail, render, loadTemplate, resolveProvider };
