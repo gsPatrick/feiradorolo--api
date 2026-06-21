@@ -1,10 +1,28 @@
 'use strict';
 
 /** Serviço de Avaliações (reviews) de produtos. */
+const { Op } = require('sequelize');
 const db = require('../../models');
 const AppError = require('../../utils/AppError');
 
 const userInclude = { model: db.User, as: 'user', attributes: ['id', 'name'] };
+
+/** Verdadeiro se o usuário comprou o produto (pedido pago/enviado/entregue/concluído). */
+async function hasPurchased(userId, productId) {
+  const order = await db.Order.findOne({
+    where: { buyer_id: userId, status: { [Op.in]: ['paid', 'shipped', 'delivered', 'completed'] } },
+    include: [{ model: db.OrderItem, as: 'items', where: { product_id: productId }, required: true }],
+  });
+  return !!order;
+}
+
+/** Pode avaliar? (comprou e ainda não avaliou). */
+async function canReview(userId, productId) {
+  if (!userId || !productId) return false;
+  if (!(await hasPurchased(userId, productId))) return false;
+  const existing = await db.Review.findOne({ where: { user_id: userId, product_id: productId } });
+  return !existing;
+}
 
 /** Avaliações aprovadas de um produto + média e total. */
 async function listByProduct(productId) {
@@ -38,6 +56,11 @@ async function create(userId, data = {}) {
   const product = await db.Product.findByPk(data.product_id);
   if (!product) throw AppError.notFound('Produto não encontrado.', 'PRODUCT_NOT_FOUND');
 
+  // Só quem comprou pode avaliar.
+  if (!(await hasPurchased(userId, data.product_id))) {
+    throw AppError.forbidden('Você só pode avaliar produtos que comprou.', 'REVIEW_NOT_PURCHASED');
+  }
+
   return db.Review.create({
     product_id: data.product_id,
     user_id: userId,
@@ -50,4 +73,4 @@ async function create(userId, data = {}) {
   });
 }
 
-module.exports = { listByProduct, listMine, create };
+module.exports = { listByProduct, listMine, create, canReview };

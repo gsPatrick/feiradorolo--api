@@ -14,4 +14,8 @@ const listMine = catchAsync(async (req, res) => sendOk(res, await service.listMi
 
 const create = catchAsync(async (req, res) => sendCreated(res, await service.create(req.user.id, req.body), 'Avaliação enviada.'));
 
-module.exports = { list, listMine, create };
+const canReview = catchAsync(async (req, res) =>
+  sendOk(res, { canReview: await service.canReview(req.user.id, req.query.product_id) })
+);
+
+module.exports = { list, listMine, create, canReview };

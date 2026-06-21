@@ -205,7 +205,10 @@ async function create(sellerId, data = {}) {
     condition: data.condition || null,
     stock: data.stock != null ? Number(data.stock) : 1,
     sku: data.sku || null,
-    status: 'draft',
+    // Publica direto ao criar (o vendedor clicou em "Publicar"). Antes nascia
+    // 'draft' e o anúncio não aparecia na vitrine.
+    status: 'active',
+    published_at: new Date(),
     specifications: data.specifications || null,
     variations: data.variations || null,
     images: data.images || null,
