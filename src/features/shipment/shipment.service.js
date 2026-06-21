@@ -156,18 +156,18 @@ async function generateLabel(shipmentId) {
   const shipment = await db.Shipment.findByPk(shipmentId);
   if (!shipment) throw AppError.notFound('Envio não encontrado.', 'SHIPMENT_NOT_FOUND');
 
-  // Trava KYC do vendedor: ao realizar uma venda, só gera etiqueta se a
-  // verificação facial estiver aprovada (regra dinâmica em platform_settings).
-  const required = await settings.get('facial.seller_required_after_first_sale', true);
-  if (required && shipment.order_id) {
+  // Verificação por WhatsApp do vendedor antes de gerar a etiqueta (configurável;
+  // default OFF até a Z-API estar configurada). A facial foi movida para o app.
+  const requirePhone = await settings.getBool('verification.require_phone_for_shipping', false);
+  if (requirePhone && shipment.order_id) {
     const order = await db.Order.findByPk(shipment.order_id);
     if (order) {
       const seller = await db.User.findByPk(order.seller_id);
-      if (seller && seller.seller_verification_status !== 'verified') {
+      if (seller && !seller.phone_verified_at) {
         throw new AppError(
-          'Conclua a verificação facial e a validação dos seus dados para gerar etiquetas de postagem.',
+          'Confirme seu WhatsApp para gerar etiquetas de postagem.',
           403,
-          'SELLER_VERIFICATION_REQUIRED'
+          'PHONE_NOT_VERIFIED'
         );
       }
     }

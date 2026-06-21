@@ -64,10 +64,18 @@ async function checkout(buyerId, payload = {}) {
   const shippingAddress = payload.shipping_address || null;
   const deliveryMethod = payload.delivery_method === 'pickup' ? 'pickup' : 'shipping';
 
-  // KYC: na 1ª compra, se exigido, o pedido fica RETIDO até a verificação facial
-  // do comprador (o vendedor vê "em análise"). Regra dinâmica em platform_settings.
   const buyer = await db.User.findByPk(buyerId);
-  const buyerVerifRequired = await settings.get('facial.buyer_required_after_first_purchase', true);
+
+  // Verificação de e-mail no checkout (configurável; default OFF até o provedor
+  // de e-mail estar configurado). A facial foi movida para o aplicativo.
+  const requireEmail = await settings.getBool('verification.require_email_for_checkout', false);
+  if (requireEmail && buyer && !buyer.email_verified_at) {
+    throw AppError.unprocessable('Confirme seu e-mail para finalizar a compra.', 'EMAIL_NOT_VERIFIED');
+  }
+
+  // Facial desativada por padrão (vai para o app). Mantém a retenção só se o admin
+  // explicitamente reativar a facial.
+  const buyerVerifRequired = await settings.getBool('facial.buyer_required_after_first_purchase', false);
   const holdForBuyer = !!(
     buyerVerifRequired && buyer && !buyer.has_first_purchase && buyer.buyer_verification_status !== 'verified'
   );

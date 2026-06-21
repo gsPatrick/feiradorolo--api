@@ -150,6 +150,15 @@ async function createOrderPayment(orderId, buyer, { token, payment_method_id, in
   if (order.buyer_id !== buyer.id) throw AppError.forbidden('Você não é o comprador deste pedido.', 'NOT_ORDER_BUYER');
   if (order.payment_status === 'paid') throw AppError.conflict('Este pedido já foi pago.', 'ORDER_ALREADY_PAID');
 
+  // Verificação por WhatsApp ao pagar (configurável; default OFF até a Z-API estar configurada).
+  const requirePhone = await settings.getBool('verification.require_phone_for_payment', false);
+  if (requirePhone) {
+    const u = await db.User.findByPk(buyer.id, { attributes: ['phone_verified_at'] });
+    if (!u || !u.phone_verified_at) {
+      throw AppError.unprocessable('Confirme seu WhatsApp para concluir o pagamento.', 'PHONE_NOT_VERIFIED');
+    }
+  }
+
   // Dados do pagador (MP exige nome + documento no Checkout Transparente — PIX/cartão/boleto).
   const buyerRow = await db.User.findByPk(buyer.id, { attributes: ['name', 'email', 'cpf', 'cnpj'] }).catch(() => null);
   const buyerName = (buyerRow && buyerRow.name) || buyer.name || '';

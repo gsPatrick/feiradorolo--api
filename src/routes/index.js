@@ -36,5 +36,6 @@ router.use('/reports', require('../features/report/report.routes'));
 router.use('/notifications', require('../features/notification/notification.routes'));
 router.use('/analytics', require('../features/analytics/analytics.routes'));
 router.use('/email-templates', require('../features/email-template/email-template.routes'));
+router.use('/verification', require('../features/verification/verification.routes'));
 
 module.exports = router;
