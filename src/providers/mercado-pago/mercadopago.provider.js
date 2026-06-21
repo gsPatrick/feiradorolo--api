@@ -145,8 +145,21 @@ async function createPayment(p) {
   if (p.binaryMode != null) body.binary_mode = !!p.binaryMode;
   if (p.statementDescriptor) body.statement_descriptor = p.statementDescriptor;
   if (p.moneyReleaseDays != null) body.money_release_days = Number(p.moneyReleaseDays);
-  const { data } = await api.post('/v1/payments', body);
-  return data;
+  // O MP exige X-Idempotency-Key em /v1/payments. Usa o id do pagamento local
+  // (externalReference) como chave — única por tentativa e idempotente em retries.
+  const idempotencyKey = String(p.idempotencyKey || p.externalReference || `mp-${Date.now()}`);
+  try {
+    const { data } = await api.post('/v1/payments', body, {
+      headers: { 'X-Idempotency-Key': idempotencyKey },
+    });
+    return data;
+  } catch (e) {
+    const detail = e.response && e.response.data;
+    const msg =
+      (detail && (detail.message || (detail.cause && detail.cause[0] && detail.cause[0].description))) ||
+      e.message;
+    throw new AppError(`Mercado Pago: ${msg}`, 502, 'MP_PAYMENT_ERROR', detail);
+  }
 }
 
 /** Pix imediato (Checkout API). */
