@@ -189,8 +189,16 @@ async function getPayment(paymentId, sellerAccessToken = null) {
 async function refundPayment(paymentId, amount = null, sellerAccessToken = null) {
   const api = await http(sellerAccessToken);
   const body = amount != null ? { amount: Number(amount) } : {};
-  const { data } = await api.post(`/v1/payments/${paymentId}/refunds`, body);
-  return data;
+  try {
+    const { data } = await api.post(`/v1/payments/${paymentId}/refunds`, body, {
+      headers: { 'X-Idempotency-Key': `refund-${paymentId}-${amount || 'full'}` },
+    });
+    return data;
+  } catch (e) {
+    const detail = e.response && e.response.data;
+    const msg = (detail && (detail.message || (detail.cause && detail.cause[0] && detail.cause[0].description))) || e.message;
+    throw new AppError(`Mercado Pago (estorno): ${msg}`, 502, 'MP_REFUND_ERROR', detail);
+  }
 }
 
 module.exports = {

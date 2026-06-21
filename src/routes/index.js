@@ -30,6 +30,7 @@ router.use('/orders', require('../features/order/order.routes'));
 router.use('/payments', require('../features/payment/payment.routes'));
 router.use('/plans', require('../features/plan/plan.routes'));
 router.use('/escrow', require('../features/escrow/escrow.routes'));
+router.use('/disputes', require('../features/dispute/dispute.routes'));
 router.use('/shipments', require('../features/shipment/shipment.routes'));
 router.use('/chats', require('../features/chat/chat.routes'));
 router.use('/reports', require('../features/report/report.routes'));
