@@ -8,6 +8,7 @@
  */
 const crypto = require('crypto');
 const { Op } = require('sequelize');
+const logger = require('../../utils/logger');
 const db = require('../../models');
 const AppError = require('../../utils/AppError');
 const emailProvider = require('../../providers/email/email.provider');
@@ -108,14 +109,19 @@ async function requestEmail(user) {
   const web = await settings.get('app.web_url', '');
   const verify_url = `${web}/verificar-email?code=${code}`;
 
-  await emailProvider.sendEmail({
+  const res = await emailProvider.sendEmail({
     to: u.email,
     toName: u.name,
     templateKey: 'verificacao-email',
     vars: { name: u.name, code, verify_url },
   });
+  // Sem provedor de e-mail configurado: registra o código no log para permitir
+  // testar o fluxo (ex.: antes de configurar a Resend). Configure a Resend para envio real.
+  if (res && res.skipped) {
+    logger.warn(`[VERIFICAÇÃO/DEV] e-mail sem provedor — código para ${u.email}: ${code}`);
+  }
 
-  return { sent: true };
+  return { sent: true, delivered: !(res && res.skipped) };
 }
 
 async function confirmEmail(user, code) {

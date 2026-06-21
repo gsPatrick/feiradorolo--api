@@ -10,6 +10,7 @@ const AppError = require('../../utils/AppError');
 const logger = require('../../utils/logger');
 const settings = require('../../services/settings.cache');
 const melhorenvio = require('../../providers/melhor-envio/melhorenvio.provider');
+const zapi = require('../../providers/zapi/zapi.provider');
 
 const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
 
@@ -159,7 +160,7 @@ async function generateLabel(shipmentId) {
   // Verificação por WhatsApp do vendedor antes de gerar a etiqueta (configurável;
   // default OFF até a Z-API estar configurada). A facial foi movida para o app.
   const requirePhone = await settings.getBool('verification.require_phone_for_shipping', false);
-  if (requirePhone && shipment.order_id) {
+  if (requirePhone && (await zapi.isConfigured()) && shipment.order_id) {
     const order = await db.Order.findByPk(shipment.order_id);
     if (order) {
       const seller = await db.User.findByPk(order.seller_id);

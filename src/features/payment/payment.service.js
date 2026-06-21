@@ -16,6 +16,7 @@ const AppError = require('../../utils/AppError');
 const logger = require('../../utils/logger');
 const settings = require('../../services/settings.cache');
 const mercadopago = require('../../providers/mercado-pago/mercadopago.provider');
+const zapi = require('../../providers/zapi/zapi.provider');
 const accountService = require('./payment-account.service');
 const { emitToUser } = require('../../realtime/io');
 
@@ -150,9 +151,10 @@ async function createOrderPayment(orderId, buyer, { token, payment_method_id, in
   if (order.buyer_id !== buyer.id) throw AppError.forbidden('Você não é o comprador deste pedido.', 'NOT_ORDER_BUYER');
   if (order.payment_status === 'paid') throw AppError.conflict('Este pedido já foi pago.', 'ORDER_ALREADY_PAID');
 
-  // Verificação por WhatsApp ao pagar (configurável; default OFF até a Z-API estar configurada).
+  // Verificação por WhatsApp ao pagar. Só bloqueia se a Z-API estiver configurada
+  // (senão não há como entregar o código — não trava o pagamento à toa).
   const requirePhone = await settings.getBool('verification.require_phone_for_payment', false);
-  if (requirePhone) {
+  if (requirePhone && (await zapi.isConfigured())) {
     const u = await db.User.findByPk(buyer.id, { attributes: ['phone_verified_at'] });
     if (!u || !u.phone_verified_at) {
       throw AppError.unprocessable('Confirme seu WhatsApp para concluir o pagamento.', 'PHONE_NOT_VERIFIED');
