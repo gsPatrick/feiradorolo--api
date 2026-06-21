@@ -53,6 +53,16 @@ const disconnect = catchAsync(async (req, res) => {
   return sendOk(res, result, 'Conta de recebimento desvinculada.');
 });
 
+// Public Key do gateway ativo — usada pelo SDK MercadoPago.js no Checkout
+// Transparente (tokenização de cartão). Não é segredo.
+const publicKey = catchAsync(async (req, res) => {
+  const gw = await settings.activeGateway('mercado_pago');
+  return sendOk(res, {
+    public_key: (gw && gw.publicKey) || null,
+    environment: (gw && gw.environment) || null,
+  });
+});
+
 module.exports = {
   createPreference,
   createPayment,
@@ -62,4 +72,5 @@ module.exports = {
   connectCallback,
   connectStatus,
   disconnect,
+  publicKey,
 };

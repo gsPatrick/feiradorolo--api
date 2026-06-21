@@ -10,6 +10,9 @@ const router = Router();
 // Webhook do gateway: SEM auth (o Mercado Pago chama esta rota).
 router.post('/webhook', controller.webhook);
 
+// Public Key do gateway ativo (Checkout Transparente) — não secreta.
+router.get('/public-key', controller.publicKey);
+
 // Onboarding do repasse (vínculo OAuth da conta do vendedor).
 router.get('/connect/mercado-pago', auth, controller.connect);
 router.get('/connect/mercado-pago/callback', controller.connectCallback); // MP redireciona (sem auth)

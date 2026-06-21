@@ -127,7 +127,12 @@ async function createPayment(p) {
     transaction_amount: Number(p.amount),
     description: p.description,
     payment_method_id: p.paymentMethodId,
-    payer: { email: p.payerEmail },
+    payer: {
+      email: p.payerEmail,
+      ...(p.payerFirstName ? { first_name: p.payerFirstName } : {}),
+      ...(p.payerLastName ? { last_name: p.payerLastName } : {}),
+      ...(p.payerIdentification ? { identification: p.payerIdentification } : {}),
+    },
     external_reference: p.externalReference,
     notification_url: p.notificationUrl,
     metadata: p.metadata || {},

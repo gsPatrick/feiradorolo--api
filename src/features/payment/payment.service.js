@@ -147,6 +147,15 @@ async function createOrderPayment(orderId, buyer, { token, payment_method_id, in
   if (order.buyer_id !== buyer.id) throw AppError.forbidden('Você não é o comprador deste pedido.', 'NOT_ORDER_BUYER');
   if (order.payment_status === 'paid') throw AppError.conflict('Este pedido já foi pago.', 'ORDER_ALREADY_PAID');
 
+  // Dados do pagador (MP exige nome + documento no Checkout Transparente — PIX/cartão/boleto).
+  const buyerRow = await db.User.findByPk(buyer.id, { attributes: ['name', 'email', 'cpf', 'cnpj'] }).catch(() => null);
+  const buyerName = (buyerRow && buyerRow.name) || buyer.name || '';
+  const [firstName, ...rest] = String(buyerName).trim().split(/\s+/).filter(Boolean);
+  const buyerDoc = buyerRow && (buyerRow.cpf || buyerRow.cnpj);
+  const payerIdentification = buyerDoc
+    ? { type: buyerRow && buyerRow.cnpj ? 'CNPJ' : 'CPF', number: String(buyerDoc).replace(/\D/g, '') }
+    : null;
+
   const cfg = await splitConfig();
   const sellerToken = await resolveSellerToken(order, cfg);
   const amount = round2(order.total != null ? order.total : order.subtotal);
@@ -172,6 +181,9 @@ async function createOrderPayment(orderId, buyer, { token, payment_method_id, in
     amount,
     description: `Pedido ${order.order_number}`,
     payerEmail: buyer.email,
+    payerFirstName: firstName || undefined,
+    payerLastName: rest.length ? rest.join(' ') : undefined,
+    payerIdentification: payerIdentification || undefined,
     token,
     paymentMethodId: payment_method_id,
     installments,
@@ -187,7 +199,23 @@ async function createOrderPayment(orderId, buyer, { token, payment_method_id, in
   });
 
   await _applyMpPayment(payment, mp);
-  return { payment: await payment.reload(), gateway: { id: mp.id, status: mp.status, status_detail: mp.status_detail } };
+
+  // Dados para o Checkout Transparente exibir no próprio site (sem redirecionar).
+  const txd = mp.point_of_interaction && mp.point_of_interaction.transaction_data;
+  const pix = txd
+    ? { qr_code: txd.qr_code || null, qr_code_base64: txd.qr_code_base64 || null, ticket_url: txd.ticket_url || null }
+    : null;
+  const td = mp.transaction_details || {};
+  const boleto = td.external_resource_url
+    ? { url: td.external_resource_url, barcode: (mp.barcode && mp.barcode.content) || null }
+    : null;
+
+  return {
+    payment: await payment.reload(),
+    gateway: { id: mp.id, status: mp.status, status_detail: mp.status_detail },
+    pix,
+    boleto,
+  };
 }
 
 /**
