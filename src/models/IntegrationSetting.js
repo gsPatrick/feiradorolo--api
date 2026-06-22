@@ -19,7 +19,7 @@ module.exports = (sequelize, DataTypes) => {
         primaryKey: true,
       },
       service: {
-        type: DataTypes.ENUM('brevo', 'zoho', 'firebase', 'melhor_envio', 'fcm', 'onesignal', 'resend', 'zapi'),
+        type: DataTypes.ENUM('brevo', 'zoho', 'firebase', 'melhor_envio', 'fcm', 'onesignal', 'resend', 'zapi', 'zoho_mail'),
         allowNull: false,
       },
       environment: {

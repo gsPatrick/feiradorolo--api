@@ -12,6 +12,7 @@ const axios = require('axios');
 const db = require('../../models');
 const settings = require('../../services/settings.cache');
 const logger = require('../../utils/logger');
+const zohomail = require('../zoho-mail/zohomail.provider');
 
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 const ZEPTO_URL = 'https://api.zeptomail.com/v1.1/email';
@@ -32,8 +33,9 @@ function apiKeyOf(cfg) {
   return cfg && cfg.credentials && (cfg.credentials.apiKey || cfg.credentials.api_key);
 }
 
-/** Resolve o provedor ativo (resend > brevo > zoho) e suas credenciais — só do banco. */
+/** Resolve o provedor ativo (zoho_mail > resend > brevo > zoho/zepto) — só do banco. */
 async function resolveProvider() {
+  if (await zohomail.isConfigured()) return { name: 'zoho_mail', cfg: null };
   const resend = await settings.integration('resend');
   if (apiKeyOf(resend)) return { name: 'resend', cfg: resend };
   const brevo = await settings.integration('brevo');
@@ -114,6 +116,7 @@ async function sendEmail({ to, subject, html, templateKey, vars = {}, toName }) 
   }
 
   const args = { to, toName, subject: finalSubject, html: finalHtml };
+  if (provider.name === 'zoho_mail') return zohomail.sendEmail({ to, subject: finalSubject, html: finalHtml, fromName: toName ? undefined : undefined });
   if (provider.name === 'resend') return sendResend(provider.cfg, args);
   if (provider.name === 'zoho') return sendZoho(provider.cfg, args);
   return sendBrevo(provider.cfg, args);
