@@ -419,6 +419,43 @@ async function generateReturnLabel(orderId) {
   };
 }
 
+// Transportadoras/serviços do Melhor Envio (cache 6h) — para o formulário de anúncio
+// escolher quais oferecer. Cai num conjunto padrão se a integração não responder.
+const FALLBACK_CARRIERS = [
+  { code: '1', name: 'Correios PAC', company: 'Correios', description: 'Mais econômico' },
+  { code: '2', name: 'Correios SEDEX', company: 'Correios', description: 'Mais rápido' },
+  { code: '3', name: 'Jadlog .Package', company: 'Jadlog', description: 'Econômico' },
+  { code: '4', name: 'Jadlog .Com', company: 'Jadlog', description: 'Expresso' },
+  { code: '17', name: 'Loggi', company: 'Loggi', description: 'Regiões metropolitanas' },
+];
+let _carriersCache = null;
+let _carriersAt = 0;
+async function listCarriers() {
+  if (_carriersCache && Date.now() - _carriersAt < 6 * 3600 * 1000) return _carriersCache;
+  let services = [];
+  try {
+    services = await melhorenvio.listServices();
+  } catch (err) {
+    logger.warn(`listCarriers: Melhor Envio indisponível (${err.message}); usando fallback.`);
+    return FALLBACK_CARRIERS;
+  }
+  const carriers = (Array.isArray(services) ? services : [])
+    .filter((s) => s && s.id && s.name)
+    .map((s) => ({
+      code: String(s.id),
+      name: s.company && s.company.name ? `${s.company.name} ${s.name}` : s.name,
+      company: s.company ? s.company.name : null,
+      picture: s.company ? s.company.picture : null,
+      description: s.type ? `Serviço ${s.type}` : null,
+    }));
+  if (carriers.length) {
+    _carriersCache = carriers;
+    _carriersAt = Date.now();
+    return carriers;
+  }
+  return FALLBACK_CARRIERS;
+}
+
 module.exports = {
   quote,
   createForOrder,
@@ -426,4 +463,5 @@ module.exports = {
   generateReturnLabel,
   track,
   getById,
+  listCarriers,
 };

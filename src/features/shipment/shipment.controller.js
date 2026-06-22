@@ -25,4 +25,9 @@ const track = catchAsync(async (req, res) => {
   return sendOk(res, result);
 });
 
-module.exports = { quote, createForOrder, generateLabel, track };
+const carriers = catchAsync(async (req, res) => {
+  const list = await shipmentService.listCarriers();
+  return sendOk(res, list);
+});
+
+module.exports = { quote, createForOrder, generateLabel, track, carriers };

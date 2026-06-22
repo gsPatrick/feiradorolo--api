@@ -71,4 +71,11 @@ async function track(orderIds) {
   return data;
 }
 
-module.exports = { quote, addToCart, checkout, generateLabel, printLabel, track };
+/** Lista os serviços/transportadoras disponíveis no Melhor Envio. */
+async function listServices() {
+  const http = await client();
+  const { data } = await http.get('/me/shipment/services');
+  return Array.isArray(data) ? data : []; // [{ id, name, company:{id,name,picture}, type, ... }]
+}
+
+module.exports = { quote, addToCart, checkout, generateLabel, printLabel, track, listServices };
