@@ -25,6 +25,13 @@ router.delete('/:id/roles/:slug', auth, authorize('rbac.manage'), controller.rem
 router.post('/:id/ban', auth, authorize('users.ban'), controller.ban);
 router.post('/:id/unban', auth, authorize('users.ban'), controller.unban);
 
+// Moderação de contas (aprovar / suspender / apenas-chat / excluir).
+router.post('/:id/approve', auth, authorize('users.ban'), controller.approve);
+router.post('/:id/suspend', auth, authorize('users.ban'), controller.suspend);
+router.post('/:id/chat-only', auth, authorize('users.ban'), controller.chatOnly);
+router.post('/:id/chat-only/remove', auth, authorize('users.ban'), controller.chatOnlyRemove);
+router.delete('/:id', auth, authorize('users.ban'), controller.remove);
+
 // Perfil público de vendedor (reputação + selo de confiança) — SEM auth.
 // Antes de '/:id' (protegido) para a rota pública ser resolvida primeiro.
 router.get('/:id/seller-profile', controller.sellerProfile);

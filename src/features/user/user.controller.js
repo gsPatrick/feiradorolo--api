@@ -47,6 +47,31 @@ const unban = catchAsync(async (req, res) => {
   return sendOk(res, user, 'Banimento revogado.');
 });
 
+const approve = catchAsync(async (req, res) => {
+  const user = await userService.approve(req.params.id);
+  return sendOk(res, user, 'Conta aprovada.');
+});
+
+const suspend = catchAsync(async (req, res) => {
+  const user = await userService.suspend(req.params.id, req.body, req.user.id);
+  return sendOk(res, user, 'Conta suspensa.');
+});
+
+const chatOnly = catchAsync(async (req, res) => {
+  const user = await userService.setChatOnly(req.params.id, true);
+  return sendOk(res, user, 'Restrição "apenas chat" aplicada.');
+});
+
+const chatOnlyRemove = catchAsync(async (req, res) => {
+  const user = await userService.setChatOnly(req.params.id, false);
+  return sendOk(res, user, 'Restrição "apenas chat" removida.');
+});
+
+const remove = catchAsync(async (req, res) => {
+  const user = await userService.softDelete(req.params.id, req.user.id);
+  return sendOk(res, user, 'Conta excluída.');
+});
+
 const validateDocument = catchAsync(async (req, res) => {
   const result = await userService.validateSellerDocument(req.user.id);
   return sendOk(res, result, 'Documento validado.');
@@ -76,6 +101,11 @@ module.exports = {
   removeRole,
   ban,
   unban,
+  approve,
+  suspend,
+  chatOnly,
+  chatOnlyRemove,
+  remove,
   validateDocument,
   submitVerification,
   myVerifications,

@@ -188,6 +188,81 @@ async function unban(userId) {
   return sanitize(user);
 }
 
+/* --------------------------- Moderação de contas -------------------------- */
+
+/**
+ * Carrega o usuário-alvo garantindo que o ator (admin) não esteja agindo sobre
+ * a própria conta e nem sobre outro super-admin (admin_role='admin').
+ * Usado por suspend/softDelete (ações destrutivas).
+ */
+async function loadModerationTarget(userId, actorId) {
+  if (actorId && String(actorId) === String(userId)) {
+    throw AppError.forbidden('Você não pode aplicar esta ação na própria conta.', 'SELF_ACTION_FORBIDDEN');
+  }
+  const user = await db.User.findByPk(userId);
+  if (!user) throw AppError.notFound('Usuário não encontrado.');
+  if (user.admin_role === 'admin') {
+    throw AppError.forbidden('Não é permitido moderar outro administrador.', 'PROTECTED_ADMIN');
+  }
+  return user;
+}
+
+/** Aprova uma conta pendente: account_status -> 'active'. */
+async function approve(userId) {
+  const user = await db.User.findByPk(userId);
+  if (!user) throw AppError.notFound('Usuário não encontrado.');
+  user.account_status = 'active';
+  await user.save();
+  return sanitize(user);
+}
+
+/**
+ * Suspende uma conta: account_status -> 'suspended'. Guarda reason/until em
+ * metadata.suspension (o model não tem colunas dedicadas).
+ */
+async function suspend(userId, { reason, until } = {}, actorId) {
+  const user = await loadModerationTarget(userId, actorId);
+
+  const metadata = { ...(user.metadata || {}) };
+  metadata.suspension = {
+    reason: reason || null,
+    until: until || null,
+    suspended_by: actorId || null,
+    suspended_at: new Date().toISOString(),
+  };
+  user.account_status = 'suspended';
+  user.metadata = metadata;
+  await user.save();
+  return sanitize(user);
+}
+
+/** Marca/desmarca a restrição "apenas chat" (shadowban) do usuário. */
+async function setChatOnly(userId, value) {
+  const user = await db.User.findByPk(userId);
+  if (!user) throw AppError.notFound('Usuário não encontrado.');
+  user.is_shadowbanned = !!value;
+  await user.save();
+  return sanitize(user);
+}
+
+/**
+ * Exclui (soft delete) a conta. O model é paranoid → destroy() preenche
+ * deleted_at. Também marca account_status='banned' para bloqueio imediato no
+ * middleware de auth caso o registro ainda seja carregado (paranoid:false).
+ * Bloqueia auto-exclusão e exclusão de outro super-admin.
+ */
+async function softDelete(userId, actorId) {
+  const user = await loadModerationTarget(userId, actorId);
+
+  await db.sequelize.transaction(async (transaction) => {
+    user.account_status = 'banned';
+    await user.save({ transaction });
+    await user.destroy({ transaction }); // paranoid → deleted_at
+  });
+
+  return sanitize(user);
+}
+
 /* ----------------------------- Ban scopes / shadow ------------------------ */
 
 /**
@@ -376,6 +451,10 @@ module.exports = {
   removeRole,
   ban,
   unban,
+  approve,
+  suspend,
+  setChatOnly,
+  softDelete,
   getActiveBanScopes,
   isShadowbanned,
   validateSellerDocument,
