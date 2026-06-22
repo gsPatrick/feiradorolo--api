@@ -1206,11 +1206,58 @@ async function payHighlight(productId, highlightId, user) {
   return { payment, pix: pix || null };
 }
 
+/**
+ * Perfil público de reputação de um vendedor (fonte única para o selo de confiança).
+ * Carrega o User por id e reaproveita sellerStats (agregados reais, sem N+1) +
+ * buildSellerReputation/computeVerificationLevel para montar a saída.
+ */
+async function getSellerProfile(userId) {
+  const seller = await db.User.findByPk(userId, {
+    attributes: [
+      'id',
+      'name',
+      'avatar_url',
+      'seller_tier',
+      'account_status',
+      'email_verified_at',
+      'phone_verified_at',
+      'document_verified_at',
+      'seller_verification_status',
+      'created_at',
+    ],
+  });
+  if (!seller) throw AppError.notFound('Usuário não encontrado.', 'USER_NOT_FOUND');
+
+  // Agregados reais (rating médio de reviews aprovadas, vendas pagas, anúncios ativos).
+  const statsMap = await sellerStats([seller.id]);
+  const rep = buildSellerReputation(seller, statsMap.get(seller.id));
+
+  return {
+    id: seller.id,
+    name: seller.name,
+    avatar_url: seller.avatar_url || null,
+    member_since: rep.member_since,
+    rating: rep.rating,
+    reviews_count: rep.reviews_count,
+    sales_count: rep.sales_count,
+    products_count: rep.products_count,
+    seller_tier: rep.seller_tier,
+    verification_level: rep.verification_level,
+    reputation_label: rep.reputation_label,
+    status: rep.status,
+    email_verified: rep.email_verified,
+    phone_verified: rep.phone_verified,
+    document_verified: rep.document_verified,
+    facial_verified: rep.facial_verified,
+  };
+}
+
 module.exports = {
   slugify,
   TIER_RANK,
   list,
   getById,
+  getSellerProfile,
   create,
   update,
   publish,

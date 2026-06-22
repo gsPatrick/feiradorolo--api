@@ -4,6 +4,7 @@
 const catchAsync = require('../../utils/catchAsync');
 const { sendOk, sendCreated, paginated } = require('../../utils/apiResponse');
 const userService = require('./user.service');
+const productService = require('../product/product.service');
 
 const list = catchAsync(async (req, res) => {
   const { page = 1, limit = 20, search, status } = req.query;
@@ -14,6 +15,11 @@ const list = catchAsync(async (req, res) => {
 const getById = catchAsync(async (req, res) => {
   const user = await userService.getById(req.params.id);
   return sendOk(res, user);
+});
+
+const sellerProfile = catchAsync(async (req, res) => {
+  const profile = await productService.getSellerProfile(req.params.id);
+  return sendOk(res, profile);
 });
 
 const updateMe = catchAsync(async (req, res) => {
@@ -64,6 +70,7 @@ const reviewVerification = catchAsync(async (req, res) => {
 module.exports = {
   list,
   getById,
+  sellerProfile,
   updateMe,
   assignRole,
   removeRole,

@@ -25,6 +25,10 @@ router.delete('/:id/roles/:slug', auth, authorize('rbac.manage'), controller.rem
 router.post('/:id/ban', auth, authorize('users.ban'), controller.ban);
 router.post('/:id/unban', auth, authorize('users.ban'), controller.unban);
 
+// Perfil público de vendedor (reputação + selo de confiança) — SEM auth.
+// Antes de '/:id' (protegido) para a rota pública ser resolvida primeiro.
+router.get('/:id/seller-profile', controller.sellerProfile);
+
 // Listagem e detalhe.
 router.get('/', auth, authorize('users.view'), controller.list);
 router.get('/:id', auth, authorize('users.view'), controller.getById);
