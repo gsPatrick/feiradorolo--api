@@ -402,6 +402,122 @@ async function list(params = {}) {
   return { rows, total: count, facets };
 }
 
+/* -------------------------------- specs_list ------------------------------ */
+
+/** Prettifica uma chave (snake_case → "Snake Case") como fallback de label. */
+function prettifyKey(key) {
+  return String(key || '')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Formata um valor de especificação para exibição:
+ * - array → junta com ", " (ignora itens vazios)
+ * - booleano (ou strings "true"/"false") → "Sim"/"Não"
+ * - demais → String. Anexa a unidade do field_definition quando houver.
+ * Retorna null para valores vazios/sem conteúdo (para serem ignorados).
+ */
+function formatSpecValue(value, unit) {
+  let out;
+  if (Array.isArray(value)) {
+    const parts = value.map((v) => String(v).trim()).filter(Boolean);
+    if (!parts.length) return null;
+    out = parts.join(', ');
+  } else if (typeof value === 'boolean') {
+    out = value ? 'Sim' : 'Não';
+  } else if (value === 'true' || value === 'false') {
+    out = value === 'true' ? 'Sim' : 'Não';
+  } else {
+    if (value == null) return null;
+    out = String(value).trim();
+    if (!out) return null;
+  }
+  if (unit) out = `${out} ${unit}`;
+  return out;
+}
+
+/**
+ * Ids da categoria do produto + ancestrais (categorias-pai), para herdar as
+ * definições de campos. Sobe a árvore via parent_id em uma sequência curta de
+ * leituras (a profundidade da árvore é pequena, com guarda anti-loop).
+ */
+async function categoryChainIds(categoryId) {
+  const ids = [];
+  let cid = categoryId;
+  let guard = 0;
+  while (cid && guard < 20) {
+    ids.push(cid);
+    const cat = await db.Category.findByPk(cid, { attributes: ['id', 'parent_id'], raw: true });
+    if (!cat) break;
+    cid = cat.parent_id;
+    guard += 1;
+  }
+  return ids;
+}
+
+/**
+ * Constrói `specs_list`: array [{ key, label, value }] a partir de
+ * product.specifications (objeto { chave: valor }), buscando o label REAL de
+ * cada chave nos field_definitions da categoria do produto e ancestrais. Uma
+ * única query (field_definitions WHERE name IN chaves AND category_id IN cadeia).
+ * - Ordena pelo sort_order do field_definition; chaves sem definição vão ao fim
+ *   (ordem original do objeto), com label prettificado como fallback.
+ * - Ignora valores vazios/null/array vazio.
+ */
+async function buildSpecsList(product) {
+  const specs = product && product.specifications;
+  if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return [];
+  const keys = Object.keys(specs);
+  if (!keys.length) return [];
+
+  // Mapa chave → field_definition (uma query única, sem N+1).
+  const defByName = new Map();
+  const chainIds = await categoryChainIds(product.category_id);
+  if (chainIds.length) {
+    const defs = await db.FieldDefinition.findAll({
+      where: { category_id: { [Op.in]: chainIds }, name: { [Op.in]: keys } },
+      attributes: ['name', 'category_id', 'label', 'unit', 'sort_order'],
+      raw: true,
+    });
+    // Se uma chave existir em mais de uma categoria da cadeia, a mais específica
+    // (menor índice em chainIds) vence.
+    const rank = new Map(chainIds.map((id, i) => [id, i]));
+    for (const d of defs) {
+      const prev = defByName.get(d.name);
+      if (!prev || (rank.get(d.category_id) ?? 99) < (rank.get(prev.category_id) ?? 99)) {
+        defByName.set(d.name, d);
+      }
+    }
+  }
+
+  const items = [];
+  keys.forEach((key, index) => {
+    const def = defByName.get(key) || null;
+    const value = formatSpecValue(specs[key], def && def.unit);
+    if (value == null) return; // ignora vazios
+    items.push({
+      key,
+      label: def && def.label ? def.label : prettifyKey(key),
+      value,
+      _order: def && def.sort_order != null ? Number(def.sort_order) : null,
+      _index: index,
+    });
+  });
+
+  // Ordem estável: por sort_order do field_definition; sem definição vai ao fim
+  // preservando a ordem original das chaves.
+  items.sort((a, b) => {
+    const ao = a._order == null ? Number.POSITIVE_INFINITY : a._order;
+    const bo = b._order == null ? Number.POSITIVE_INFINITY : b._order;
+    if (ao !== bo) return ao - bo;
+    return a._index - b._index;
+  });
+
+  return items.map(({ key, label, value }) => ({ key, label, value }));
+}
+
 /** Detalhe por id; incrementa views_count quando acesso público (`incrementViews`). */
 async function getById(id, { incrementViews = false } = {}) {
   const product = await db.Product.findByPk(id, {
@@ -415,6 +531,10 @@ async function getById(id, { incrementViews = false } = {}) {
   }
   // Enriquecimento com dados REAIS (rating/reviews_count/sold + reputação do vendedor).
   await enrichProducts(product);
+
+  // specs_list: especificações rotuladas com os labels reais dos field_definitions
+  // (mantém `specifications` cru para compatibilidade).
+  product.setDataValue('specs_list', await buildSpecsList(product));
   return product;
 }
 

@@ -64,6 +64,18 @@ async function checkout(buyerId, payload = {}) {
   const shippingAddress = payload.shipping_address || null;
   const deliveryMethod = payload.delivery_method === 'pickup' ? 'pickup' : 'shipping';
 
+  // Retirada presencial só é aceita quando TODOS os produtos do checkout a permitem
+  // explicitamente (metadata.allow_pickup === true). O vendedor decide isso no anúncio.
+  if (deliveryMethod === 'pickup') {
+    const blocked = products.find((p) => !(p.metadata && p.metadata.allow_pickup === true));
+    if (blocked) {
+      throw AppError.unprocessable(
+        `O produto "${blocked.title}" não aceita retirada presencial.`,
+        'PICKUP_NOT_AVAILABLE'
+      );
+    }
+  }
+
   const buyer = await db.User.findByPk(buyerId);
 
   // Verificação de e-mail no checkout (configurável; default OFF até o provedor
