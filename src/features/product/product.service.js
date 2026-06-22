@@ -283,20 +283,31 @@ function unaccent(s) {
 
 /** Ordenação por `sort`. */
 function buildOrder(sort) {
+  // Destaque SEMPRE no topo (Diamante > Ouro > Prata > Sem destaque), em QUALQUER
+  // ordenação — busca e categorias. A ordenação escolhida (preço/recente/etc.)
+  // ordena DENTRO de cada faixa de destaque.
+  const highlightFirst = [
+    db.sequelize.literal("CASE highlight_tier WHEN 'diamond' THEN 3 WHEN 'gold' THEN 2 WHEN 'silver' THEN 1 ELSE 0 END"),
+    'DESC',
+  ];
+  // Vendedor Premium ganha visibilidade extra (paga 12% de comissão) — só na relevância.
+  const premiumBoost = [
+    db.sequelize.literal(`CASE WHEN "seller"."seller_tier" = 'premium' THEN 1 ELSE 0 END`),
+    'DESC',
+  ];
   switch (sort) {
     case 'recent':
-      return [['created_at', 'DESC']];
+      return [highlightFirst, ['created_at', 'DESC']];
     case 'price_asc':
-      return [[PRICE_EXPR(), 'ASC']];
+      return [highlightFirst, [PRICE_EXPR(), 'ASC']];
     case 'price_desc':
-      return [[PRICE_EXPR(), 'DESC']];
+      return [highlightFirst, [PRICE_EXPR(), 'DESC']];
     case 'best_selling':
-      return [['favorites_count', 'DESC'], ['views_count', 'DESC'], ['created_at', 'DESC']];
+      return [highlightFirst, ['favorites_count', 'DESC'], ['views_count', 'DESC'], ['created_at', 'DESC']];
     default: // relevância: destaques primeiro, vendedor Premium em seguida, depois recentes
       return [
-        [db.sequelize.literal("CASE highlight_tier WHEN 'diamond' THEN 3 WHEN 'gold' THEN 2 WHEN 'silver' THEN 1 ELSE 0 END"), 'DESC'],
-        // Vendedor Premium ganha visibilidade extra na busca geral (paga 12% de comissão).
-        [db.sequelize.literal(`CASE WHEN "seller"."seller_tier" = 'premium' THEN 1 ELSE 0 END`), 'DESC'],
+        highlightFirst,
+        premiumBoost,
         ['favorites_count', 'DESC'],
         ['published_at', 'DESC'],
         ['created_at', 'DESC'],
