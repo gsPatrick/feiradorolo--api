@@ -34,6 +34,10 @@ module.exports = (sequelize, DataTypes) => {
       badge_text: { type: DataTypes.STRING(60), allowNull: true },
       variant: { type: DataTypes.STRING(40), allowNull: true }, // hero | flash_sale | strip | app_promo
       content: { type: DataTypes.JSONB, allowNull: true }, // extras livres (decoração, features, timer)
+      // Flags de exibição:
+      show_text: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }, // false = só imagem (sem overlay de texto/CTA)
+      show_button: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }, // false = sem botão (CTA)
+      clickable: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }, // true = banner inteiro é link (link_url/cta_url)
       position: {
         type: DataTypes.ENUM('home_hero', 'home_strip', 'category_top', 'sidebar', 'home_flash', 'app_promo'),
         allowNull: false,

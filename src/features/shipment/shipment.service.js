@@ -136,6 +136,7 @@ async function quote({ from_zip, to_zip, products, order_amount, category_ids, p
       service_code: String(svc.id),
       service_name: svc.name,
       company: svc.company ? svc.company.name : null,
+      company_picture: svc.company ? svc.company.picture : null,
       base_price: round2(basePrice),
       price: freeShipping ? 0 : withMarkup,
       free_shipping: freeShipping,
