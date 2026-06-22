@@ -561,6 +561,71 @@ async function adminRemove(id) {
   await plan.destroy();
 }
 
+/* ----------------------- Admin (assinaturas / grant) ---------------------- */
+
+/**
+ * Concede (grant) uma assinatura de plano JÁ ATIVA a um usuário, SEM pagamento.
+ * starts_at = now, ends_at = now + (days || plan.duration_days). payment_id null.
+ * Retorna a assinatura criada (com o plano incluído).
+ */
+async function adminGrant({ user_id, plan_id, days } = {}) {
+  if (!user_id) throw AppError.unprocessable('user_id é obrigatório.', 'USER_ID_REQUIRED');
+  if (!plan_id) throw AppError.unprocessable('plan_id é obrigatório.', 'PLAN_ID_REQUIRED');
+
+  const user = await db.User.findByPk(user_id);
+  if (!user) throw AppError.notFound('Usuário não encontrado.', 'USER_NOT_FOUND');
+
+  const plan = await db.Plan.findByPk(plan_id);
+  if (!plan) throw AppError.notFound('Plano não encontrado.', 'PLAN_NOT_FOUND');
+
+  let durationDays = days != null && days !== '' ? Number(days) : null;
+  if (!Number.isFinite(durationDays) || durationDays <= 0) {
+    durationDays = plan.duration_days ? Number(plan.duration_days) : null;
+  }
+
+  const startsAt = new Date();
+  const endsAt = durationDays
+    ? new Date(startsAt.getTime() + durationDays * 24 * 60 * 60 * 1000)
+    : null;
+
+  const subscription = await db.PlanSubscription.create({
+    user_id,
+    plan_id,
+    payment_id: null,
+    status: 'active',
+    starts_at: startsAt,
+    ends_at: endsAt,
+    metadata: { granted_by_admin: true },
+  });
+
+  // Recarrega com o plano para o retorno.
+  return db.PlanSubscription.findByPk(subscription.id, {
+    include: [{ model: db.Plan, as: 'plan' }],
+  });
+}
+
+/** Revoga (cancela) uma assinatura por ADMIN. status → 'cancelled', ends_at = now. */
+async function adminRevokeSubscription(id) {
+  const subscription = await db.PlanSubscription.findByPk(id);
+  if (!subscription) throw AppError.notFound('Assinatura não encontrada.', 'SUBSCRIPTION_NOT_FOUND');
+  await subscription.update({ status: 'cancelled', ends_at: new Date() });
+  return subscription;
+}
+
+/** Lista as assinaturas (opcionalmente de um usuário) para o admin. */
+async function adminListSubscriptions({ user_id } = {}) {
+  const where = {};
+  if (user_id) where.user_id = user_id;
+  return db.PlanSubscription.findAll({
+    where,
+    include: [
+      { model: db.Plan, as: 'plan' },
+      { model: db.User, as: 'user', attributes: ['id', 'name', 'email'] },
+    ],
+    order: [['created_at', 'DESC']],
+  });
+}
+
 module.exports = {
   listActive,
   listMine,
@@ -571,4 +636,7 @@ module.exports = {
   adminCreate,
   adminUpdate,
   adminRemove,
+  adminGrant,
+  adminRevokeSubscription,
+  adminListSubscriptions,
 };

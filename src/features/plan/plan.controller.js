@@ -58,6 +58,28 @@ const adminRemove = catchAsync(async (req, res) => {
   return sendOk(res, null, 'Plano removido.');
 });
 
+// Concede uma assinatura ATIVA a um usuário (grant, sem pagamento).
+const adminGrant = catchAsync(async (req, res) => {
+  const data = await planService.adminGrant({
+    user_id: req.body.user_id,
+    plan_id: req.body.plan_id,
+    days: req.body.days,
+  });
+  return sendCreated(res, data, 'Assinatura concedida pelo administrador.');
+});
+
+// Revoga (cancela) uma assinatura.
+const adminRevokeSubscription = catchAsync(async (req, res) => {
+  const data = await planService.adminRevokeSubscription(req.params.id);
+  return sendOk(res, data, 'Assinatura revogada.');
+});
+
+// Lista as assinaturas (opcionalmente por user_id).
+const adminListSubscriptions = catchAsync(async (req, res) => {
+  const data = await planService.adminListSubscriptions({ user_id: req.query.user_id });
+  return sendOk(res, data);
+});
+
 module.exports = {
   list,
   mine,
@@ -67,4 +89,7 @@ module.exports = {
   adminCreate,
   adminUpdate,
   adminRemove,
+  adminGrant,
+  adminRevokeSubscription,
+  adminListSubscriptions,
 };

@@ -16,6 +16,8 @@ const router = Router();
 router.get('/', optionalAuth, controller.list);
 // Catálogo público dos pacotes de destaque (antes de '/:id' para não ser capturado como id).
 router.get('/highlight-packages', controller.highlightPackages);
+// Listagem ADMIN (todos os status/vendedores) — antes de '/:id'.
+router.get('/admin/all', auth, authorize('specifications.manage'), controller.adminList);
 router.get('/:id', optionalAuth, controller.getById);
 
 // Histórico/status de destaque do produto (dono ou admin).
@@ -34,5 +36,7 @@ router.post('/:id/highlights/:highlightId/pay', auth, controller.payHighlight);
 
 // Moderação admin (aprovar/rejeitar anúncio).
 router.patch('/:id/status', auth, authorize('specifications.manage'), controller.setStatus);
+// Destaque por ADMIN (presentear/forçar boost, sem pagamento).
+router.post('/:id/admin-highlight', auth, authorize('specifications.manage'), controller.adminHighlight);
 
 module.exports = router;

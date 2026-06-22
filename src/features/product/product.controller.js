@@ -48,6 +48,25 @@ const list = catchAsync(async (req, res) => {
   return paginated(res, rows, { page, limit, total });
 });
 
+// Listagem ADMIN: todos os status/vendedores, com filtros via query.
+const adminList = catchAsync(async (req, res) => {
+  const params = {
+    page: req.query.page,
+    limit: req.query.limit,
+    status: req.query.status,
+    seller_id: req.query.seller_id,
+    category_id: req.query.category_id,
+    q: req.query.q,
+    search: req.query.search,
+    highlight_tier: req.query.highlight_tier,
+    sort: req.query.sort,
+  };
+  const { rows, total } = await service.adminList(params);
+  const page = Number(params.page) || 1;
+  const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
+  return paginated(res, rows, { page, limit, total });
+});
+
 const getById = catchAsync(async (req, res) => {
   // Acesso público incrementa views_count (exceto o próprio dono).
   const data = await service.getById(req.params.id, { incrementViews: true, viewerId: req.user && req.user.id });
@@ -93,6 +112,15 @@ const payHighlight = catchAsync(async (req, res) => {
   return sendOk(res, data, 'Pix do destaque gerado.');
 });
 
+// Concede/remove destaque por ADMIN (gift, sem pagamento).
+const adminHighlight = catchAsync(async (req, res) => {
+  const data = await service.adminHighlight(req.params.id, {
+    tier: req.body.tier,
+    days: req.body.days,
+  });
+  return sendOk(res, data, 'Destaque atualizado pelo administrador.');
+});
+
 // Catálogo público dos pacotes de destaque (preços/vigência reais).
 const highlightPackages = catchAsync(async (req, res) => {
   const data = await service.listHighlightPackages();
@@ -107,6 +135,8 @@ const listHighlights = catchAsync(async (req, res) => {
 
 module.exports = {
   list,
+  adminList,
+  adminHighlight,
   getById,
   create,
   update,

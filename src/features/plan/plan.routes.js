@@ -14,6 +14,13 @@ router.post('/admin', auth, authorize('settings.manage'), controller.adminCreate
 router.put('/admin/:id', auth, authorize('settings.manage'), controller.adminUpdate);
 router.delete('/admin/:id', auth, authorize('settings.manage'), controller.adminRemove);
 
+// Admin: conceder/revogar/listar assinaturas (grant, sem pagamento).
+// Rotas mais específicas antes de '/admin/:id' já registrada acima não conflitam
+// (paths distintos), mas mantemos 'subscriptions' explícito.
+router.get('/admin/subscriptions', auth, authorize('settings.view'), controller.adminListSubscriptions);
+router.post('/admin/grant', auth, authorize('settings.manage'), controller.adminGrant);
+router.delete('/admin/subscriptions/:id', auth, authorize('settings.manage'), controller.adminRevokeSubscription);
+
 // Catálogo / assinatura.
 router.get('/', auth, controller.list);
 router.get('/mine', auth, controller.mine);

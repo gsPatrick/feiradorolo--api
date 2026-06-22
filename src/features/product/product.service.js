@@ -413,6 +413,47 @@ async function list(params = {}) {
   return { rows, total: count, facets };
 }
 
+/**
+ * Listagem ADMIN de produtos: TODOS os status e vendedores, paginada, com
+ * filtros opcionais (status, seller_id, category_id, q por título, highlight_tier).
+ * Reaproveita a lógica de `list` (include do vendedor + categoria, enriquecimento),
+ * mas sem forçar status='active'. Inclui status/highlight_tier/highlight_expires_at
+ * e o objeto `seller` (id+name via enrichProducts) no retorno.
+ */
+async function adminList(params = {}) {
+  const page = Math.max(1, Number(params.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
+  const offset = (page - 1) * limit;
+
+  const where = {};
+  const and = [];
+
+  if (params.status) where.status = params.status; // sem default → qualquer status
+  if (params.seller_id) where.seller_id = params.seller_id;
+  if (params.category_id) where.category_id = params.category_id;
+  if (params.highlight_tier) where.highlight_tier = params.highlight_tier;
+
+  const term = (params.q != null ? params.q : params.search) || '';
+  if (String(term).trim()) {
+    and.push(db.sequelize.where(db.sequelize.literal(TITLE_UNACCENT), { [Op.iLike]: `%${unaccent(term)}%` }));
+  }
+
+  if (and.length) where[Op.and] = and;
+
+  const { rows, count } = await db.Product.findAndCountAll({
+    where,
+    include: [sellerInclude(), { model: db.Category, as: 'category' }],
+    order: buildOrder(params.sort),
+    limit,
+    offset,
+    distinct: true,
+  });
+
+  await enrichProducts(rows);
+
+  return { rows, total: count };
+}
+
 /* -------------------------------- specs_list ------------------------------ */
 
 /** Prettifica uma chave (snake_case → "Snake Case") como fallback de label. */
@@ -1257,6 +1298,94 @@ async function activateHighlight(ref) {
   });
 }
 
+/**
+ * Concede/remove destaque por ADMIN (presentear/forçar boost), SEM pagamento.
+ * - tier ∈ silver|gold|diamond: seta Product.highlight_tier e highlight_expires_at
+ *   = now + days (default: duração do pacote, ou 7). Cria um ProductHighlight
+ *   'active' (price 0, sem payment) para histórico.
+ * - tier = none: remove o destaque (highlight_tier 'none', expires null) e cancela
+ *   destaques ativos/pendentes vigentes do produto.
+ * Retorna o produto atualizado.
+ */
+async function adminHighlight(productId, { tier, days } = {}) {
+  const allowed = [...HIGHLIGHT_TIERS, 'none'];
+  if (!tier || !allowed.includes(tier)) {
+    throw AppError.unprocessable(
+      `tier inválido. Valores: ${allowed.join(', ')}.`,
+      'INVALID_HIGHLIGHT_TIER'
+    );
+  }
+
+  const product = await db.Product.findByPk(productId);
+  if (!product) throw AppError.notFound('Produto não encontrado.', 'PRODUCT_NOT_FOUND');
+
+  // Remover destaque.
+  if (tier === 'none') {
+    return db.sequelize.transaction(async (transaction) => {
+      const now = new Date();
+      await db.ProductHighlight.update(
+        { status: 'cancelled', ends_at: now },
+        {
+          where: {
+            product_id: productId,
+            status: { [Op.in]: ['active', 'pending'] },
+          },
+          transaction,
+        }
+      );
+      await product.update({ highlight_tier: 'none', highlight_expires_at: null }, { transaction });
+      return product;
+    });
+  }
+
+  // Conceder destaque (gift). Duração: days informado, ou duração do pacote, ou 7.
+  let durationDays = days != null && days !== '' ? Number(days) : null;
+  if (!Number.isFinite(durationDays) || durationDays <= 0) {
+    const pkg = await settings.highlight(tier).catch(() => null);
+    durationDays = pkg && pkg.duration_days ? Number(pkg.duration_days) : 7;
+  }
+
+  const startsAt = new Date();
+  const endsAt = new Date(startsAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
+  const salesAtStart = await _salesCount(productId);
+
+  return db.sequelize.transaction(async (transaction) => {
+    // Cancela destaques ativos/pendentes anteriores (evita duplicidade no histórico).
+    await db.ProductHighlight.update(
+      { status: 'cancelled', ends_at: startsAt },
+      {
+        where: { product_id: productId, status: { [Op.in]: ['active', 'pending'] } },
+        transaction,
+      }
+    );
+
+    await db.ProductHighlight.create(
+      {
+        product_id: productId,
+        user_id: product.seller_id,
+        tier,
+        price: 0,
+        currency: 'BRL',
+        status: 'active',
+        payment_id: null,
+        starts_at: startsAt,
+        ends_at: endsAt,
+        views_at_start: Number(product.views_count || 0),
+        favorites_at_start: Number(product.favorites_count || 0),
+        sales_at_start: salesAtStart,
+      },
+      { transaction }
+    );
+
+    await product.update(
+      { highlight_tier: tier, highlight_expires_at: endsAt },
+      { transaction }
+    );
+
+    return product;
+  });
+}
+
 /** Extrai o Pix do retorno bruto do MP (point_of_interaction). */
 function pixFromMpPayment(mp) {
   const td =
@@ -1407,6 +1536,8 @@ module.exports = {
   slugify,
   TIER_RANK,
   list,
+  adminList,
+  adminHighlight,
   getById,
   getSellerProfile,
   create,
