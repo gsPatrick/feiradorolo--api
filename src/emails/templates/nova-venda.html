@@ -1,61 +1,96 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="color-scheme" content="light only" />
   <title>Você vendeu! — Feira do Rolo</title>
+  <style>
+    body { margin:0 !important; padding:0 !important; width:100% !important; }
+    @media only screen and (max-width:600px) {
+      .fr-container { width:100% !important; }
+      .fr-pad { padding-left:22px !important; padding-right:22px !important; }
+      .fr-btn a { display:block !important; }
+    }
+  </style>
 </head>
-<body style="margin:0; padding:0; background-color:#f6f7f9; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
-  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">Você fez uma venda! Pedido #{{order_number}}.</div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f6f7f9;">
+<body style="margin:0; padding:0; background-color:#f1f3f6; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0; mso-hide:all;">Você fez uma venda! Pedido #{{order_number}}.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f3f6;">
     <tr>
-      <td align="center" style="padding:24px 12px;">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:600px; margin:0 auto;">
+      <td align="center" style="padding:28px 12px;">
+        <table role="presentation" class="fr-container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:600px; margin:0 auto;">
+
+          <!-- Header -->
           <tr>
-            <td align="center" style="padding:8px 0 20px 0;">
-              <span style="display:inline-block; background-color:#FFD700; color:#0f172a; font-family:Arial,Helvetica,sans-serif; font-size:20px; font-weight:bold; padding:10px 18px; border-radius:10px; letter-spacing:0.3px;">Feira do Rolo</span>
+            <td style="background-color:#ffffff; border:1px solid #e6e8ec; border-bottom:3px solid #FFD700; border-radius:14px 14px 0 0; padding:18px 28px;" class="fr-pad">
+              <span style="font-family:Arial,Helvetica,sans-serif; font-size:21px; font-weight:bold; letter-spacing:-0.3px; color:#0f172a;">Feira do <span style="color:#FFC400;">Rolo</span></span>
             </td>
           </tr>
+
+          <!-- Card -->
           <tr>
-            <td style="background-color:#ffffff; border-radius:16px; padding:36px 32px; font-family:Arial,Helvetica,sans-serif; color:#0f172a;">
-              <h1 style="margin:0 0 12px 0; font-size:24px; line-height:1.3; color:#0f172a;">Você vendeu! 💰</h1>
-              <p style="margin:0 0 20px 0; font-size:16px; line-height:1.6; color:#334155;">Parabéns, {{seller_name}}! Você fez uma nova venda na Feira do Rolo. Prepare o produto e gere a etiqueta de envio para despachar o quanto antes.</p>
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f6f7f9; border-radius:12px; margin:0 0 24px 0;">
+            <td style="background-color:#ffffff; border:1px solid #e6e8ec; border-top:0; padding:40px 36px 36px 36px; font-family:Arial,Helvetica,sans-serif; color:#0f172a;" class="fr-pad">
+
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 22px auto;">
                 <tr>
-                  <td style="padding:16px 18px; font-family:Arial,Helvetica,sans-serif; font-size:15px; color:#334155;">
+                  <td align="center" valign="middle" width="68" height="68" style="width:68px; height:68px; background-color:#e6f7ec; border-radius:50%; font-size:30px; line-height:68px;">&#128176;</td>
+                </tr>
+              </table>
+
+              <h1 style="margin:0 0 14px 0; font-size:24px; line-height:1.3; color:#0f172a; text-align:center; font-weight:bold;">Você vendeu!</h1>
+              <p style="margin:0 0 8px 0; font-size:16px; line-height:1.65; color:#334155; text-align:center;">Parabéns, {{seller_name}},</p>
+              <p style="margin:0 0 26px 0; font-size:16px; line-height:1.65; color:#334155; text-align:center;">Você fez uma nova venda na Feira do Rolo. Prepare o produto e gere a etiqueta de envio para despachar o quanto antes.</p>
+
+              <!-- Sale summary -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fb; border:1px solid #e6e8ec; border-radius:12px; margin:0 0 26px 0;">
+                <tr>
+                  <td style="padding:18px 20px; font-family:Arial,Helvetica,sans-serif;">
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
-                        <td style="padding:4px 0; color:#64748b;">Número do pedido</td>
-                        <td align="right" style="padding:4px 0; font-weight:bold; color:#0f172a;">#{{order_number}}</td>
+                        <td style="padding:5px 0; font-size:14px; color:#64748b;">Número do pedido</td>
+                        <td align="right" style="padding:5px 0; font-size:14px; font-weight:bold; color:#0f172a;">#{{order_number}}</td>
                       </tr>
                       <tr>
-                        <td style="padding:4px 0; color:#64748b;">Comprador</td>
-                        <td align="right" style="padding:4px 0; font-weight:bold; color:#0f172a;">{{buyer_name}}</td>
+                        <td style="padding:5px 0; font-size:14px; color:#64748b;">Comprador</td>
+                        <td align="right" style="padding:5px 0; font-size:14px; font-weight:bold; color:#0f172a;">{{buyer_name}}</td>
                       </tr>
+                      <tr><td colspan="2" style="padding:6px 0;"><hr style="border:0; border-top:1px solid #e6e8ec; margin:0;" /></td></tr>
                       <tr>
-                        <td style="padding:4px 0; color:#64748b;">Total da venda</td>
-                        <td align="right" style="padding:4px 0; font-weight:bold; color:#0f172a;">{{total}}</td>
+                        <td style="padding:5px 0; font-size:15px; color:#0f172a; font-weight:bold;">Total da venda</td>
+                        <td align="right" style="padding:5px 0; font-size:20px; font-weight:bold; color:#15803d;">{{total}}</td>
                       </tr>
                     </table>
                   </td>
                 </tr>
               </table>
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="fr-btn">
                 <tr>
-                  <td align="center" style="padding:0 0 8px 0;">
-                    <a href="{{order_url}}" target="_blank" style="display:inline-block; background-color:#FFD700; color:#0f172a; font-family:Arial,Helvetica,sans-serif; font-size:16px; font-weight:bold; text-decoration:none; padding:14px 32px; border-radius:10px;">Ver venda / Gerar etiqueta</a>
+                  <td align="center" style="padding:0;">
+                    <a href="{{order_url}}" target="_blank" style="display:inline-block; background-color:#FFD700; color:#0f172a; font-family:Arial,Helvetica,sans-serif; font-size:16px; font-weight:bold; text-decoration:none; padding:15px 34px; border-radius:8px;">Ver venda e gerar etiqueta</a>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
+
+          <!-- Footer -->
           <tr>
-            <td style="padding:24px 16px; font-family:Arial,Helvetica,sans-serif; text-align:center; color:#94a3b8; font-size:12px; line-height:1.6;">
-              <p style="margin:0 0 6px 0;">© 2026 Feira do Rolo · CNPJ 12.345.678/0001-90 · Este é um e-mail automático.</p>
-              <p style="margin:0;"><a href="https://feiradorolo.com.br/ajuda" target="_blank" style="color:#94a3b8; text-decoration:underline;">Central de Ajuda</a></p>
+            <td style="background-color:#f8f9fb; border:1px solid #e6e8ec; border-top:0; border-radius:0 0 14px 14px; padding:24px 28px; font-family:Arial,Helvetica,sans-serif; text-align:center; color:#94a3b8; font-size:12px; line-height:1.7;" class="fr-pad">
+              <p style="margin:0 0 10px 0;">
+                <a href="https://feiradorolo.com.br/ajuda" target="_blank" style="color:#64748b; text-decoration:none; font-weight:bold;">Central de Ajuda</a>
+                <span style="color:#cbd5e1;">&nbsp;·&nbsp;</span>
+                <a href="https://instagram.com/feiradorolo" target="_blank" style="color:#64748b; text-decoration:none;">Instagram</a>
+                <span style="color:#cbd5e1;">&nbsp;·&nbsp;</span>
+                <a href="https://facebook.com/feiradorolo" target="_blank" style="color:#64748b; text-decoration:none;">Facebook</a>
+              </p>
+              <p style="margin:0 0 6px 0;">© 2026 Feira do Rolo · CNPJ 12.345.678/0001-90</p>
+              <p style="margin:0;">Você recebeu este e-mail porque tem uma conta na Feira do Rolo. Este é um e-mail automático.</p>
             </td>
           </tr>
+
         </table>
       </td>
     </tr>
