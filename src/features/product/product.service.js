@@ -36,8 +36,239 @@ function sellerInclude() {
   return {
     model: db.User,
     as: 'seller',
-    attributes: ['id', 'name', 'avatar_url'],
+    // Campos extras necessários para computar reputação/verificação/selo do vendedor.
+    attributes: [
+      'id',
+      'name',
+      'avatar_url',
+      'seller_tier',
+      'account_status',
+      'email_verified_at',
+      'phone_verified_at',
+      'seller_verification_status',
+      'created_at',
+    ],
   };
+}
+
+/* -------------------------- reputação / vendedor -------------------------- */
+// Limiares (constantes nomeadas) para o cálculo de selos do vendedor.
+const LEADER_MIN_SALES = 30;
+const LEADER_MIN_RATING = 4.5;
+const PLATINUM_MIN_SALES = 100;
+const PLATINUM_MIN_RATING = 4.7;
+
+/**
+ * Nível de verificação 0–3 a partir dos campos reais do User:
+ *  0 = nada;
+ *  1 = e-mail OU telefone verificado (email_verified_at / phone_verified_at);
+ *  2 = documento validado — usamos seller_verification_status 'pending' como sinal
+ *      de que o vendedor já submeteu KYC/documento (em revisão);
+ *  3 = verificação facial aprovada — seller_verification_status === 'verified'.
+ * Não há coluna dedicada de "documento validado"; o KYC facial é o sinal real
+ * mais forte disponível, então 2 = KYC em andamento e 3 = KYC aprovado.
+ */
+function computeVerificationLevel(seller) {
+  if (!seller) return 0;
+  const vs = seller.seller_verification_status;
+  if (vs === 'verified') return 3;
+  if (vs === 'pending') return 2;
+  if (seller.email_verified_at || seller.phone_verified_at) return 1;
+  return 0;
+}
+
+/** Mapeia account_status (active|pending|suspended|banned) → status público. */
+function mapSellerStatus(accountStatus) {
+  switch (accountStatus) {
+    case 'banned':
+      return 'banned';
+    case 'suspended':
+    case 'pending':
+      return 'suspended';
+    default:
+      return 'active';
+  }
+}
+
+/**
+ * Agrega reviews aprovadas por produto. Recebe lista de productIds e devolve
+ * um Map id → { rating (média), count }. Uma única query agrupada (sem N+1).
+ */
+async function reviewStatsByProduct(productIds) {
+  const ids = [...new Set((productIds || []).filter(Boolean))];
+  const map = new Map();
+  if (!ids.length) return map;
+  const rows = await db.Review.findAll({
+    where: { product_id: { [Op.in]: ids }, status: 'approved' },
+    attributes: [
+      'product_id',
+      [db.sequelize.fn('AVG', db.sequelize.col('rating')), 'avg'],
+      [db.sequelize.fn('COUNT', db.sequelize.col('id')), 'count'],
+    ],
+    group: ['product_id'],
+    raw: true,
+  });
+  for (const r of rows) {
+    map.set(r.product_id, {
+      rating: r.avg != null ? Math.round(Number(r.avg) * 100) / 100 : 0,
+      count: Number(r.count) || 0,
+    });
+  }
+  return map;
+}
+
+/**
+ * Vendas reais por produto: itens de pedido cujo pedido está pago
+ * (payment_status='paid'), somando quantity. Uma query agrupada (sem N+1).
+ * Devolve Map product_id → total vendido.
+ */
+async function soldByProduct(productIds) {
+  const ids = [...new Set((productIds || []).filter(Boolean))];
+  const map = new Map();
+  if (!ids.length) return map;
+  const rows = await db.OrderItem.findAll({
+    where: { product_id: { [Op.in]: ids } },
+    attributes: [
+      'product_id',
+      [db.sequelize.fn('COALESCE', db.sequelize.fn('SUM', db.sequelize.col('OrderItem.quantity')), 0), 'sold'],
+    ],
+    include: [{ model: db.Order, as: 'order', attributes: [], required: true, where: { payment_status: 'paid' } }],
+    group: ['OrderItem.product_id'],
+    raw: true,
+  });
+  for (const r of rows) map.set(r.product_id, Number(r.sold) || 0);
+  return map;
+}
+
+/**
+ * Agrega métricas de TODOS os produtos (ativos) de um conjunto de vendedores:
+ * rating médio (reviews aprovadas), total de reviews, vendas reais e nº de
+ * anúncios ativos. Duas queries agrupadas por seller (sem N+1).
+ * Devolve Map seller_id → { rating, reviews_count, sales_count, products_count }.
+ */
+async function sellerStats(sellerIds) {
+  const ids = [...new Set((sellerIds || []).filter(Boolean))];
+  const map = new Map();
+  if (!ids.length) return map;
+
+  // Reviews aprovadas dos produtos do vendedor + contagem de anúncios ativos.
+  const reviewRows = await db.Review.findAll({
+    where: { status: 'approved' },
+    attributes: [
+      [db.sequelize.col('product.seller_id'), 'seller_id'],
+      [db.sequelize.fn('AVG', db.sequelize.col('Review.rating')), 'avg'],
+      [db.sequelize.fn('COUNT', db.sequelize.col('Review.id')), 'count'],
+    ],
+    include: [{ model: db.Product, as: 'product', attributes: [], required: true, where: { seller_id: { [Op.in]: ids } } }],
+    group: [db.sequelize.col('product.seller_id')],
+    raw: true,
+  });
+
+  // Vendas reais por vendedor (itens pagos) — join OrderItem→Order→Product.
+  const salesRows = await db.OrderItem.findAll({
+    attributes: [
+      [db.sequelize.col('product.seller_id'), 'seller_id'],
+      [db.sequelize.fn('COALESCE', db.sequelize.fn('SUM', db.sequelize.col('OrderItem.quantity')), 0), 'sales'],
+    ],
+    include: [
+      { model: db.Order, as: 'order', attributes: [], required: true, where: { payment_status: 'paid' } },
+      { model: db.Product, as: 'product', attributes: [], required: true, where: { seller_id: { [Op.in]: ids } } },
+    ],
+    group: [db.sequelize.col('product.seller_id')],
+    raw: true,
+  });
+
+  // Anúncios ativos por vendedor.
+  const productRows = await db.Product.findAll({
+    where: { seller_id: { [Op.in]: ids }, status: 'active' },
+    attributes: ['seller_id', [db.sequelize.fn('COUNT', db.sequelize.col('id')), 'count']],
+    group: ['seller_id'],
+    raw: true,
+  });
+
+  for (const id of ids) map.set(id, { rating: 0, reviews_count: 0, sales_count: 0, products_count: 0 });
+  for (const r of reviewRows) {
+    const cur = map.get(r.seller_id) || { rating: 0, reviews_count: 0, sales_count: 0, products_count: 0 };
+    cur.rating = r.avg != null ? Math.round(Number(r.avg) * 100) / 100 : 0;
+    cur.reviews_count = Number(r.count) || 0;
+    map.set(r.seller_id, cur);
+  }
+  for (const r of salesRows) {
+    const cur = map.get(r.seller_id) || { rating: 0, reviews_count: 0, sales_count: 0, products_count: 0 };
+    cur.sales_count = Number(r.sales) || 0;
+    map.set(r.seller_id, cur);
+  }
+  for (const r of productRows) {
+    const cur = map.get(r.seller_id) || { rating: 0, reviews_count: 0, sales_count: 0, products_count: 0 };
+    cur.products_count = Number(r.count) || 0;
+    map.set(r.seller_id, cur);
+  }
+  return map;
+}
+
+/** Monta o objeto público de reputação do vendedor a partir do User + stats. */
+function buildSellerReputation(seller, stats) {
+  const s = stats || { rating: 0, reviews_count: 0, sales_count: 0, products_count: 0 };
+  const rating = Number(s.rating) || 0;
+  const salesCount = Number(s.sales_count) || 0;
+  const isLeader = salesCount >= LEADER_MIN_SALES && rating >= LEADER_MIN_RATING;
+  let reputationLabel = null;
+  if (salesCount >= PLATINUM_MIN_SALES && rating >= PLATINUM_MIN_RATING) {
+    reputationLabel = 'Vendedor Platinum';
+  } else if (isLeader) {
+    reputationLabel = 'Vendedor Líder';
+  }
+  // created_at (coluna underscored) só vem por getDataValue na instância Sequelize.
+  const sellerCreatedAt = seller
+    ? (typeof seller.getDataValue === 'function' ? seller.getDataValue('created_at') : seller.created_at)
+    : null;
+  return {
+    rating,
+    reviews_count: Number(s.reviews_count) || 0,
+    sales_count: salesCount,
+    products_count: Number(s.products_count) || 0,
+    seller_tier: seller && seller.seller_tier ? seller.seller_tier : 'standard',
+    verification_level: computeVerificationLevel(seller),
+    is_leader: isLeader,
+    reputation_label: reputationLabel,
+    status: mapSellerStatus(seller && seller.account_status),
+    chat_only: false, // sem fonte de restrição "somente chat" exposta aqui (is_shadowbanned não é embutido no produto)
+    member_since: sellerCreatedAt ? new Date(sellerCreatedAt).getFullYear() : null,
+  };
+}
+
+/**
+ * Enriquecimento das linhas de produto: adiciona rating/reviews_count/sold em
+ * cada produto e os campos de reputação no objeto `seller` embutido. Mutável
+ * sobre as instâncias Sequelize (via setDataValue) para sair no JSON.
+ */
+async function enrichProducts(rows) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  const products = list.filter(Boolean);
+  if (!products.length) return rows;
+
+  const productIds = products.map((p) => p.id);
+  const sellerIds = products.map((p) => (p.seller ? p.seller.id : p.seller_id)).filter(Boolean);
+
+  const [reviewMap, soldMap, sellerMap] = await Promise.all([
+    reviewStatsByProduct(productIds),
+    soldByProduct(productIds),
+    sellerStats(sellerIds),
+  ]);
+
+  for (const p of products) {
+    const rs = reviewMap.get(p.id) || { rating: 0, count: 0 };
+    p.setDataValue('rating', rs.rating);
+    p.setDataValue('reviews_count', rs.count);
+    p.setDataValue('sold', soldMap.get(p.id) || 0);
+
+    const seller = p.seller;
+    if (seller) {
+      const rep = buildSellerReputation(seller, sellerMap.get(seller.id));
+      for (const [k, v] of Object.entries(rep)) seller.setDataValue(k, v);
+    }
+  }
+  return rows;
 }
 
 /**
@@ -161,6 +392,9 @@ async function list(params = {}) {
     distinct: true,
   });
 
+  // Enriquecimento com dados REAIS (rating/reviews_count/sold + reputação do vendedor).
+  await enrichProducts(rows);
+
   let facets = null;
   if (params.facets) {
     try {
@@ -184,6 +418,8 @@ async function getById(id, { incrementViews = false } = {}) {
     await product.increment('views_count', { by: 1 });
     product.views_count = (product.views_count || 0) + 1;
   }
+  // Enriquecimento com dados REAIS (rating/reviews_count/sold + reputação do vendedor).
+  await enrichProducts(product);
   return product;
 }
 
