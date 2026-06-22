@@ -28,6 +28,23 @@ const getById = catchAsync(async (req, res) => {
   return sendOk(res, payment);
 });
 
+/** Histórico de pagamentos do usuário logado: { data, summary, pagination }. */
+const listMine = catchAsync(async (req, res) => {
+  const result = await paymentService.listMine(req.user, {
+    page: req.query.page,
+    limit: req.query.limit,
+    status: req.query.status,
+    group: req.query.group,
+  });
+  return sendOk(res, result);
+});
+
+/** Resumo agregado (total gasto + contagens) dos pagamentos do usuário. */
+const myselfSummary = catchAsync(async (req, res) => {
+  const summary = await paymentService.summaryMine(req.user);
+  return sendOk(res, summary);
+});
+
 /* ---- Onboarding do repasse (OAuth Mercado Pago) ---- */
 
 const connect = catchAsync(async (req, res) => {
@@ -68,6 +85,8 @@ module.exports = {
   createPayment,
   webhook,
   getById,
+  listMine,
+  myselfSummary,
   connect,
   connectCallback,
   connectStatus,

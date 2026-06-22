@@ -23,6 +23,11 @@ router.delete('/connect/mercado-pago', auth, controller.disconnect);
 router.post('/order/:orderId/preference', auth, controller.createPreference);
 router.post('/order/:orderId/pay', auth, controller.createPayment);
 
+// Histórico de pagamentos do usuário logado (Minha Conta › Pagamentos).
+// Registrado ANTES de '/:id' para não ser capturado pela rota dinâmica.
+router.get('/mine', auth, controller.listMine);
+router.get('/mine/summary', auth, controller.myselfSummary);
+
 router.get('/:id', auth, controller.getById);
 
 module.exports = router;

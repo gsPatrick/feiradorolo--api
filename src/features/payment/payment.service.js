@@ -589,6 +589,193 @@ async function listForOrder(orderId) {
   return db.Payment.findAll({ where: { order_id: orderId }, order: [['created_at', 'DESC']] });
 }
 
+/* ---- Histórico de pagamentos do usuário logado (Minha Conta › Pagamentos) ---- */
+
+const APPROVED_STATUSES = ['approved', 'authorized'];
+const PENDING_STATUSES = ['pending', 'in_process'];
+const OTHER_STATUSES = ['rejected', 'cancelled', 'refunded', 'charged_back'];
+
+const TIER_LABELS = { silver: 'Prata', gold: 'Ouro', diamond: 'Diamante' };
+const METHOD_LABELS = {
+  pix: 'Pix',
+  credit_card: 'Cartão de crédito',
+  debit_card: 'Cartão de débito',
+  boleto: 'Boleto',
+  account_money: 'Saldo Mercado Pago',
+};
+
+/** Normaliza o método salvo (pode vir como 'visa', 'master', etc. do MP). */
+function normalizeMethod(raw) {
+  if (!raw) return null;
+  const m = String(raw).toLowerCase();
+  if (m === 'pix') return 'pix';
+  if (m === 'bolbradesco' || m === 'boleto' || m === 'ticket') return 'boleto';
+  if (m === 'account_money') return 'account_money';
+  if (m.includes('deb')) return 'debit_card';
+  return 'credit_card';
+}
+
+/** Extrai um link de pagamento (pix/boleto/checkout) do payload, se existir. */
+function extractPayUrl(payment) {
+  const p = payment.payload || {};
+  const txd = (p.point_of_interaction && p.point_of_interaction.transaction_data) || {};
+  if (txd.ticket_url) return txd.ticket_url;
+  const td = p.transaction_details || {};
+  if (td.external_resource_url) return td.external_resource_url;
+  if (p.ticket_url) return p.ticket_url;
+  return null;
+}
+
+/** Extrai o QR Code Pix (copia-e-cola) do payload, se existir. */
+function extractPixCode(payment) {
+  const p = payment.payload || {};
+  const txd = (p.point_of_interaction && p.point_of_interaction.transaction_data) || {};
+  return txd.qr_code || null;
+}
+
+/**
+ * Lista paginada do histórico de pagamentos do usuário logado (todos os
+ * propósitos), com descrição legível e resumo (total gasto + contagens).
+ *
+ * Eficiente: 1 query para os pagamentos da página + lookups em lote por
+ * payment_id (highlights/planos) e um include do pedido. Sem N+1.
+ */
+async function listMine(user, { page = 1, limit = 20, status, group } = {}) {
+  const pg = Math.max(1, Number(page) || 1);
+  const lim = Math.min(50, Math.max(1, Number(limit) || 20));
+  const offset = (pg - 1) * lim;
+
+  const where = { user_id: user.id };
+  if (status) {
+    where.status = status;
+  } else if (group === 'pending') {
+    where.status = { [db.Sequelize.Op.in]: PENDING_STATUSES };
+  } else if (group === 'done' || group === 'approved') {
+    where.status = { [db.Sequelize.Op.in]: APPROVED_STATUSES };
+  } else if (group === 'other') {
+    where.status = { [db.Sequelize.Op.in]: OTHER_STATUSES };
+  }
+
+  const { rows, count } = await db.Payment.findAndCountAll({
+    where,
+    include: [{ model: db.Order, as: 'order', attributes: ['id', 'order_number'], required: false }],
+    order: [['created_at', 'DESC']],
+    limit: lim,
+    offset,
+  });
+
+  // Lookups em lote para descrições de destaques/planos (sem N+1).
+  const ids = rows.map((r) => r.id);
+  const highlightPayIds = rows.filter((r) => r.purpose === 'highlight').map((r) => r.id);
+  const planPayIds = rows.filter((r) => r.purpose === 'plan').map((r) => r.id);
+
+  const [highlights, subscriptions] = await Promise.all([
+    highlightPayIds.length
+      ? db.ProductHighlight.findAll({
+          where: { payment_id: { [db.Sequelize.Op.in]: highlightPayIds } },
+          attributes: ['payment_id', 'tier', 'product_id'],
+          include: [{ model: db.Product, as: 'product', attributes: ['id', 'title'], required: false }],
+        })
+      : Promise.resolve([]),
+    planPayIds.length
+      ? db.PlanSubscription.findAll({
+          where: { payment_id: { [db.Sequelize.Op.in]: planPayIds } },
+          attributes: ['payment_id', 'plan_id'],
+          include: [{ model: db.Plan, as: 'plan', attributes: ['id', 'name'], required: false }],
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const highlightByPay = new Map(highlights.map((h) => [h.payment_id, h]));
+  const subByPay = new Map(subscriptions.map((s) => [s.payment_id, s]));
+
+  const data = rows.map((p) => {
+    let description = 'Pagamento';
+    if (p.purpose === 'order') {
+      description = p.order && p.order.order_number ? `Pedido #${p.order.order_number}` : 'Pedido';
+    } else if (p.purpose === 'highlight') {
+      const h = highlightByPay.get(p.id);
+      const tier = h ? TIER_LABELS[h.tier] || h.tier : '';
+      const prod = h && h.product && h.product.title ? ` — ${h.product.title}` : '';
+      description = `Destaque ${tier}`.trim() + prod;
+    } else if (p.purpose === 'plan') {
+      const s = subByPay.get(p.id);
+      const planName = s && s.plan && s.plan.name ? s.plan.name : '';
+      description = planName ? `Plano ${planName}` : 'Plano';
+    }
+
+    const isPayable = PENDING_STATUSES.includes(p.status);
+    return {
+      id: p.id,
+      purpose: p.purpose,
+      method: normalizeMethod(p.method),
+      method_raw: p.method || null,
+      amount: Number(p.amount),
+      currency: p.currency || 'BRL',
+      status: p.status,
+      created_at: p.created_at,
+      paid_at: p.paid_at || null,
+      description,
+      order_id: p.order_id || null,
+      pay_url: isPayable ? extractPayUrl(p) : null,
+      pix_code: isPayable ? extractPixCode(p) : null,
+    };
+  });
+
+  const summary = await summaryMine(user);
+
+  return {
+    data,
+    summary,
+    pagination: { page: pg, limit: lim, total: count, pages: Math.ceil(count / lim) || 1 },
+  };
+}
+
+/**
+ * Resumo agregado dos pagamentos do usuário: total gasto (aprovados) e
+ * contagens por status. Duas queries agregadas (sem carregar todas as linhas).
+ */
+async function summaryMine(user) {
+  const fn = db.Sequelize.fn;
+  const col = db.Sequelize.col;
+
+  const [totalRow, statusRows] = await Promise.all([
+    db.Payment.findOne({
+      where: { user_id: user.id, status: { [db.Sequelize.Op.in]: APPROVED_STATUSES } },
+      attributes: [[fn('COALESCE', fn('SUM', col('amount')), 0), 'total']],
+      raw: true,
+    }),
+    db.Payment.findAll({
+      where: { user_id: user.id },
+      attributes: ['status', [fn('COUNT', col('id')), 'count']],
+      group: ['status'],
+      raw: true,
+    }),
+  ]);
+
+  const counts = {};
+  let pendingCount = 0;
+  let approvedCount = 0;
+  let otherCount = 0;
+  for (const r of statusRows) {
+    const c = Number(r.count) || 0;
+    counts[r.status] = c;
+    if (PENDING_STATUSES.includes(r.status)) pendingCount += c;
+    else if (APPROVED_STATUSES.includes(r.status)) approvedCount += c;
+    else otherCount += c;
+  }
+
+  return {
+    total_spent: Number((totalRow && totalRow.total) || 0),
+    currency: 'BRL',
+    counts,
+    pending: pendingCount,
+    approved: approvedCount,
+    other: otherCount,
+    total: pendingCount + approvedCount + otherCount,
+  };
+}
+
 module.exports = {
   splitConfig,
   createCheckoutPreference,
@@ -599,4 +786,6 @@ module.exports = {
   refund,
   getById,
   listForOrder,
+  listMine,
+  summaryMine,
 };
