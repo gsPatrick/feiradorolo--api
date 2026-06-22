@@ -16,6 +16,10 @@ const confirmPhone = catchAsync(async (req, res) =>
   sendOk(res, await service.confirmPhone(req.user, req.body && req.body.code))
 );
 
+const validateDocument = catchAsync(async (req, res) =>
+  sendOk(res, await service.validateDocument(req.user.id))
+);
+
 const status = catchAsync(async (req, res) => sendOk(res, await service.status(req.user)));
 
-module.exports = { requestEmail, confirmEmail, requestPhone, confirmPhone, status };
+module.exports = { requestEmail, confirmEmail, requestPhone, confirmPhone, validateDocument, status };

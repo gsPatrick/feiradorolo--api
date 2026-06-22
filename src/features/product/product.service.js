@@ -14,6 +14,7 @@ const AppError = require('../../utils/AppError');
 const settings = require('../../services/settings.cache');
 const mercadopago = require('../../providers/mercado-pago/mercadopago.provider');
 const logger = require('../../utils/logger');
+const { computeVerificationLevel } = require('../../utils/verificationLevel');
 
 const HIGHLIGHT_TIERS = ['silver', 'gold', 'diamond'];
 
@@ -45,6 +46,7 @@ function sellerInclude() {
       'account_status',
       'email_verified_at',
       'phone_verified_at',
+      'document_verified_at',
       'seller_verification_status',
       'created_at',
     ],
@@ -58,24 +60,8 @@ const LEADER_MIN_RATING = 4.5;
 const PLATINUM_MIN_SALES = 100;
 const PLATINUM_MIN_RATING = 4.7;
 
-/**
- * Nível de verificação 0–3 a partir dos campos reais do User:
- *  0 = nada;
- *  1 = e-mail OU telefone verificado (email_verified_at / phone_verified_at);
- *  2 = documento validado — usamos seller_verification_status 'pending' como sinal
- *      de que o vendedor já submeteu KYC/documento (em revisão);
- *  3 = verificação facial aprovada — seller_verification_status === 'verified'.
- * Não há coluna dedicada de "documento validado"; o KYC facial é o sinal real
- * mais forte disponível, então 2 = KYC em andamento e 3 = KYC aprovado.
- */
-function computeVerificationLevel(seller) {
-  if (!seller) return 0;
-  const vs = seller.seller_verification_status;
-  if (vs === 'verified') return 3;
-  if (vs === 'pending') return 2;
-  if (seller.email_verified_at || seller.phone_verified_at) return 1;
-  return 0;
-}
+// Nível de verificação 0–3 do vendedor: centralizado em utils/verificationLevel
+// (0=nada, 1=email/telefone, 2=document_verified_at, 3=facial aprovada).
 
 /** Mapeia account_status (active|pending|suspended|banned) → status público. */
 function mapSellerStatus(accountStatus) {

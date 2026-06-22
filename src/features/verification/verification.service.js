@@ -13,7 +13,10 @@ const db = require('../../models');
 const AppError = require('../../utils/AppError');
 const emailProvider = require('../../providers/email/email.provider');
 const zapi = require('../../providers/zapi/zapi.provider');
+const receitaws = require('../../providers/receitaws/receitaws.provider');
 const settings = require('../../services/settings.cache');
+const { isValidCPF, isValidCNPJ } = require('../../utils/document');
+const { computeVerificationLevel } = require('../../utils/verificationLevel');
 
 const CODE_TTL_MS = 15 * 60 * 1000; // 15 min
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60s
@@ -164,14 +167,107 @@ async function confirmPhone(user, code) {
   return { verified: true };
 }
 
+/**
+ * Validação de documento (nível 2 de verificação).
+ * PF → valida CPF matematicamente (sem API). PJ → valida CNPJ matematicamente
+ * e, se válido, confirma situação ATIVA via ReceitaWS; se a Receita falhar
+ * (rede/rate-limit), aceita com base no cálculo matemático (degrade graceful).
+ * Em caso de sucesso, marca document_verified_at = agora.
+ */
+async function validateDocument(userId) {
+  const u = await db.User.findByPk(userId);
+  if (!u) throw AppError.notFound('Usuário não encontrado.', 'USER_NOT_FOUND');
+
+  const isCompany = u.person_type === 'company';
+  const document = isCompany ? u.cnpj : u.cpf;
+  if (!document) {
+    throw AppError.unprocessable(
+      isCompany ? 'Cadastre seu CNPJ primeiro.' : 'Cadastre seu CPF primeiro.',
+      'DOCUMENT_NOT_PROVIDED'
+    );
+  }
+
+  // Idempotência: já validado.
+  if (u.document_verified_at) {
+    return {
+      ok: true,
+      document_type: isCompany ? 'cnpj' : 'cpf',
+      level: computeVerificationLevel(u),
+      already: true,
+    };
+  }
+
+  // --- PF: validação matemática do CPF ---
+  if (!isCompany) {
+    if (!isValidCPF(document)) {
+      throw AppError.unprocessable('CPF inválido.', 'INVALID_CPF');
+    }
+    u.document_verified_at = new Date();
+    await u.save();
+    return { ok: true, document_type: 'cpf', level: computeVerificationLevel(u) };
+  }
+
+  // --- PJ: validação matemática do CNPJ + ReceitaWS (com fallback) ---
+  if (!isValidCNPJ(document)) {
+    throw AppError.unprocessable('CNPJ inválido.', 'INVALID_CNPJ');
+  }
+
+  let company = null;
+  const lookup = await receitaws.lookupCNPJ(document);
+  if (lookup.ok) {
+    // Receita respondeu: exige situação ATIVA.
+    if (lookup.situacao && lookup.situacao !== 'ATIVA') {
+      throw AppError.unprocessable(
+        `CNPJ não está ativo na Receita (situação: ${lookup.situacao}).`,
+        'CNPJ_INACTIVE'
+      );
+    }
+    company = { nome: lookup.nome || null, fantasia: lookup.fantasia || null };
+  } else {
+    // Receita indisponível (rede/rate-limit): degrade graceful — aceita pelo math.
+    logger.warn(
+      `[VERIFICAÇÃO] ReceitaWS indisponível para CNPJ do user ${u.id}; aceitando por validação matemática. Motivo: ${lookup.reason || 'desconhecido'}`
+    );
+  }
+
+  // Guarda nome/fantasia (quando houver) no metadata para auditoria.
+  if (company && (company.nome || company.fantasia)) {
+    const metadata = { ...(u.metadata || {}) };
+    metadata.document_validation = {
+      document: 'cnpj',
+      situacao: lookup.situacao || null,
+      nome: company.nome,
+      fantasia: company.fantasia,
+      validated_at: new Date().toISOString(),
+    };
+    u.metadata = metadata;
+  }
+
+  u.document_verified_at = new Date();
+  await u.save();
+
+  const result = { ok: true, document_type: 'cnpj', level: computeVerificationLevel(u) };
+  if (company) result.company = company;
+  return result;
+}
+
 async function status(user) {
   const u = await freshUser(user);
   return {
     email_verified: !!u.email_verified_at,
     phone_verified: !!u.phone_verified_at,
+    document_verified: !!u.document_verified_at,
+    verification_level: computeVerificationLevel(u),
     phone: u.phone || null,
     cpf_informed: !!u.cpf,
   };
 }
 
-module.exports = { requestEmail, confirmEmail, requestPhone, confirmPhone, status };
+module.exports = {
+  requestEmail,
+  confirmEmail,
+  requestPhone,
+  confirmPhone,
+  validateDocument,
+  status,
+};

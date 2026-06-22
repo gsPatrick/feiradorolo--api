@@ -14,6 +14,7 @@ router.post('/email/request', auth, controller.requestEmail);
 router.post('/email/confirm', auth, controller.confirmEmail);
 router.post('/phone/request', auth, controller.requestPhone);
 router.post('/phone/confirm', auth, controller.confirmPhone);
+router.post('/document/validate', auth, controller.validateDocument);
 router.get('/status', auth, controller.status);
 
 module.exports = router;

@@ -77,6 +77,8 @@ module.exports = (sequelize, DataTypes) => {
 
       email_verified_at: { type: DataTypes.DATE, allowNull: true },
       phone_verified_at: { type: DataTypes.DATE, allowNull: true },
+      // Documento (CPF/CNPJ) validado — nível 2 de verificação.
+      document_verified_at: { type: DataTypes.DATE, allowNull: true },
 
       // Verificação facial obrigatória (gatilhos de primeira atividade).
       has_first_sale: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
