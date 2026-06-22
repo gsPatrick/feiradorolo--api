@@ -208,6 +208,11 @@ function buildSellerReputation(seller, stats) {
   const sellerCreatedAt = seller
     ? (typeof seller.getDataValue === 'function' ? seller.getDataValue('created_at') : seller.created_at)
     : null;
+  // Flags individuais de verificação (para o front mostrar o que está validado).
+  const emailVerified = !!(seller && seller.email_verified_at);
+  const phoneVerified = !!(seller && seller.phone_verified_at);
+  const documentVerified = !!(seller && seller.document_verified_at);
+  const facialVerified = !!(seller && seller.seller_verification_status === 'verified');
   return {
     rating,
     reviews_count: Number(s.reviews_count) || 0,
@@ -215,6 +220,10 @@ function buildSellerReputation(seller, stats) {
     products_count: Number(s.products_count) || 0,
     seller_tier: seller && seller.seller_tier ? seller.seller_tier : 'standard',
     verification_level: computeVerificationLevel(seller),
+    email_verified: emailVerified,
+    phone_verified: phoneVerified,
+    document_verified: documentVerified,
+    facial_verified: facialVerified,
     is_leader: isLeader,
     reputation_label: reputationLabel,
     status: mapSellerStatus(seller && seller.account_status),

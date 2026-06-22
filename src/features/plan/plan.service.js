@@ -26,13 +26,62 @@ async function listActive() {
   });
 }
 
-/** Assinaturas do usuário logado (com o plano incluído). */
+/** Extrai o Pix do retorno bruto do MP (point_of_interaction). */
+function pixFromMpPayment(mp) {
+  const td =
+    mp && mp.point_of_interaction && mp.point_of_interaction.transaction_data
+      ? mp.point_of_interaction.transaction_data
+      : null;
+  if (!td) return null;
+  if (!td.qr_code && !td.qr_code_base64) return null;
+  return { qr_code: td.qr_code || null, qr_code_base64: td.qr_code_base64 || null };
+}
+
+/** Extrai o Pix (qr_code/qr_code_base64) persistido no payload do Payment. */
+function pixFromPayment(payment) {
+  if (!payment || !payment.payload) return null;
+  const p = payment.payload;
+  // Formato persistido por nós (payload.pix) ou retorno bruto do MP.
+  const qr =
+    (p.pix && p.pix.qr_code) ||
+    (p.point_of_interaction &&
+      p.point_of_interaction.transaction_data &&
+      p.point_of_interaction.transaction_data.qr_code) ||
+    null;
+  const qr64 =
+    (p.pix && p.pix.qr_code_base64) ||
+    (p.point_of_interaction &&
+      p.point_of_interaction.transaction_data &&
+      p.point_of_interaction.transaction_data.qr_code_base64) ||
+    null;
+  if (!qr && !qr64) return null;
+  return { qr_code: qr || null, qr_code_base64: qr64 || null };
+}
+
+/**
+ * Assinaturas do usuário logado (com o plano incluído). Enriquece cada assinatura
+ * com payment_id/payment_status e — se pendente e disponível — o `pix` do payload
+ * do Payment associado, para o front exibir/checar o QR sem outra chamada.
+ */
 async function listMine(userId) {
-  return db.PlanSubscription.findAll({
+  const subscriptions = await db.PlanSubscription.findAll({
     where: { user_id: userId },
-    include: [{ model: db.Plan, as: 'plan' }],
+    include: [
+      { model: db.Plan, as: 'plan' },
+      { model: db.Payment, as: 'payment', attributes: ['id', 'status', 'method', 'payload'] },
+    ],
     order: [['created_at', 'DESC']],
   });
+
+  for (const sub of subscriptions) {
+    const payment = sub.payment || null;
+    sub.setDataValue('payment_id', payment ? payment.id : sub.payment_id || null);
+    sub.setDataValue('payment_status', payment ? payment.status : null);
+    sub.setDataValue('payment_method', payment ? payment.method : null);
+    // Pix só quando a assinatura está pendente e há QR persistido.
+    sub.setDataValue('pix', sub.status === 'pending' ? pixFromPayment(payment) : null);
+  }
+  return subscriptions;
 }
 
 /**
@@ -367,6 +416,106 @@ async function createRenewalCharge(subscription) {
   return _createPlanCharge(plan, user, renewalMeta);
 }
 
+/**
+ * Re-pagar / (re)gerar o Pix de uma assinatura de plano PENDENTE.
+ * - Carrega a PlanSubscription do usuário (dona = userId, senão forbidden).
+ * - Se já estiver `active` → AppError SUBSCRIPTION_ALREADY_PAID.
+ * - Se `pending`: reaproveita o Payment pendente; garante um Pix válido —
+ *   reaproveita o do payload, consulta o MP por external_id (se aprovado, ativa
+ *   e devolve SUBSCRIPTION_ALREADY_PAID), ou re-gera via createPixPayment com o
+ *   mesmo valor/descrição, atualizando external_id e persistindo o Pix.
+ * @returns {Promise<{subscription, payment, pix: {qr_code, qr_code_base64}}>}
+ */
+async function payPlanSubscription(subscriptionId, userId) {
+  const subscription = await db.PlanSubscription.findByPk(subscriptionId, {
+    include: [
+      { model: db.Plan, as: 'plan' },
+      { model: db.Payment, as: 'payment' },
+    ],
+  });
+  if (!subscription) throw AppError.notFound('Assinatura não encontrada.', 'SUBSCRIPTION_NOT_FOUND');
+  if (subscription.user_id !== userId) {
+    throw AppError.forbidden('Você não é o dono desta assinatura.', 'NOT_SUBSCRIPTION_OWNER');
+  }
+
+  // Já paga/ativa → erro claro.
+  if (subscription.status === 'active') {
+    throw AppError.conflict('Esta assinatura já está paga.', 'SUBSCRIPTION_ALREADY_PAID');
+  }
+  if (subscription.status !== 'pending') {
+    throw AppError.unprocessable(
+      'Só é possível pagar uma assinatura pendente.',
+      'SUBSCRIPTION_NOT_PENDING'
+    );
+  }
+
+  const payment = subscription.payment;
+  if (!payment) throw AppError.notFound('Pagamento da assinatura não encontrado.', 'PAYMENT_NOT_FOUND');
+
+  // Payment já aprovado mas assinatura ainda pendente → ativa e sinaliza pago.
+  if (APPROVED_STATUSES.has(payment.status)) {
+    await _activateApprovedSubscription(subscription, subscription.plan);
+    throw AppError.conflict('Esta assinatura já está paga.', 'SUBSCRIPTION_ALREADY_PAID');
+  }
+
+  const plan = subscription.plan;
+  const description = `Plano ${plan ? plan.name : ''}`.trim();
+
+  // 1) Pix já persistido no payload? Reaproveita.
+  let pix = pixFromPayment(payment);
+
+  // 2) Senão, consulta o pagamento existente no MP (por external_id).
+  if (!pix && payment.external_id) {
+    try {
+      const mp = await mercadopago.getPayment(payment.external_id);
+      if (mp && APPROVED_STATUSES.has(mp.status)) {
+        // Já aprovado no MP → reflete, ativa e sinaliza pago.
+        await payment.update({ status: 'approved', paid_at: new Date(), payload: mp });
+        await _activateApprovedSubscription(subscription, plan);
+        throw AppError.conflict('Esta assinatura já está paga.', 'SUBSCRIPTION_ALREADY_PAID');
+      }
+      pix = pixFromMpPayment(mp);
+      if (pix) {
+        await payment.update({ payload: { ...(payment.payload || {}), ...mp, pix } });
+      }
+    } catch (err) {
+      if (err instanceof AppError && err.code === 'SUBSCRIPTION_ALREADY_PAID') throw err;
+      logger.error('plan.service.payPlanSubscription: falha ao consultar pagamento no MP:', err.message);
+    }
+  }
+
+  // 3) Ainda sem Pix → gera um novo no MP com o mesmo valor/descrição.
+  if (!pix) {
+    const user = await db.User.findByPk(payment.user_id);
+    let mp = null;
+    try {
+      mp = await mercadopago.createPixPayment({
+        amount: Number(payment.amount),
+        description,
+        payerEmail: user ? user.email : undefined,
+        externalReference: payment.id,
+        metadata: {
+          payment_id: payment.id,
+          plan_id: plan ? plan.id : undefined,
+          subscription_id: subscription.id,
+        },
+      });
+    } catch (err) {
+      if (err && err.statusCode === 503) {
+        throw AppError.conflict('Gateway de pagamento não configurado.', 'GATEWAY_NOT_CONFIGURED');
+      }
+      throw err;
+    }
+    pix = pixFromMpPayment(mp);
+    await payment.update({
+      external_id: mp && mp.id != null ? String(mp.id) : payment.external_id,
+      payload: { ...(payment.payload || {}), ...mp, ...(pix ? { pix } : {}) },
+    });
+  }
+
+  return { subscription, payment, pix: pix || null };
+}
+
 /* ------------------------------ Admin (CRUD) ------------------------------ */
 
 function planSlug(name) {
@@ -416,6 +565,7 @@ module.exports = {
   listActive,
   listMine,
   subscribe,
+  payPlanSubscription,
   createRenewalCharge,
   adminList,
   adminCreate,

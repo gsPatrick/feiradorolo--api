@@ -17,6 +17,8 @@ router.delete('/admin/:id', auth, authorize('settings.manage'), controller.admin
 // Catálogo / assinatura.
 router.get('/', auth, controller.list);
 router.get('/mine', auth, controller.mine);
+// Re-pagar / (re)gerar Pix de uma assinatura pendente — antes da paramétrica :planId.
+router.post('/subscriptions/:id/pay', auth, controller.pay);
 router.post('/:planId/subscribe', auth, controller.subscribe);
 
 module.exports = router;

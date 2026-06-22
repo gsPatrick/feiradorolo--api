@@ -34,6 +34,15 @@ const subscribe = catchAsync(async (req, res) => {
   return sendCreated(res, result, message);
 });
 
+/**
+ * Re-pagar / (re)gerar o Pix de uma assinatura PENDENTE do usuário logado.
+ * Retorna { subscription, payment, pix: { qr_code, qr_code_base64 } }.
+ */
+const pay = catchAsync(async (req, res) => {
+  const result = await planService.payPlanSubscription(req.params.id, req.user.id);
+  return sendOk(res, result, 'Pix gerado. Conclua o pagamento da assinatura.');
+});
+
 /* Admin */
 const adminList = catchAsync(async (req, res) => {
   return sendOk(res, await planService.adminList());
@@ -53,6 +62,7 @@ module.exports = {
   list,
   mine,
   subscribe,
+  pay,
   adminList,
   adminCreate,
   adminUpdate,
