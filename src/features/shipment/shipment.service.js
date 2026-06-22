@@ -20,13 +20,22 @@ const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
  *   order_amount, category_ids } — order_amount/category_ids habilitam as regras de frete grátis.
  */
 async function quote({ from_zip, to_zip, products, order_amount, category_ids, product_id, quantity } = {}) {
+  // Métodos de envio escolhidos pelo vendedor no anúncio (array de `code` em
+  // metadata.shipping_methods). Quando presente, filtra as opções de frete.
+  let allowedMethods = null;
   // Cotação direto pelo produto (página do produto): deriva origem (CEP do
   // vendedor → CEP de origem padrão) e dimensões/peso do próprio produto.
-  if (product_id && (!from_zip || !Array.isArray(products) || !products.length)) {
+  if (product_id) {
     const product = await db.Product.findByPk(product_id, {
       include: [{ model: db.User, as: 'seller', attributes: ['zip_code'] }],
     });
     if (product) {
+      const meta = product.metadata || {};
+      if (Array.isArray(meta.shipping_methods) && meta.shipping_methods.length) {
+        allowedMethods = meta.shipping_methods.map((m) => String(m));
+      }
+    }
+    if (product && (!from_zip || !Array.isArray(products) || !products.length)) {
       const cfgOrigin = await settings.shipping();
       if (!from_zip) {
         from_zip = (product.seller && product.seller.zip_code) || (cfgOrigin && cfgOrigin.default_origin_zip) || null;
@@ -133,6 +142,15 @@ async function quote({ from_zip, to_zip, products, order_amount, category_ids, p
       delivery_time: svc.delivery_time,
       currency: 'BRL',
     });
+  }
+
+  // Restringe às transportadoras que o vendedor habilitou no anúncio
+  // (metadata.shipping_methods). Compara como String. Se o filtro zerar tudo
+  // (métodos antigos/incompatíveis), NÃO filtra — para nunca deixar o comprador
+  // sem opção de frete.
+  if (allowedMethods && allowedMethods.length) {
+    const filtered = options.filter((o) => allowedMethods.includes(String(o.service_code)));
+    if (filtered.length) return filtered;
   }
 
   return options;

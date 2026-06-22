@@ -14,7 +14,12 @@ const router = Router();
 
 // Públicas.
 router.get('/', optionalAuth, controller.list);
+// Catálogo público dos pacotes de destaque (antes de '/:id' para não ser capturado como id).
+router.get('/highlight-packages', controller.highlightPackages);
 router.get('/:id', optionalAuth, controller.getById);
+
+// Histórico/status de destaque do produto (dono ou admin).
+router.get('/:id/highlights', auth, controller.listHighlights);
 
 // Gestão pelo vendedor.
 router.post('/', auth, controller.create);

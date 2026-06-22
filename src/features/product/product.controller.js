@@ -80,8 +80,23 @@ const remove = catchAsync(async (req, res) => {
 });
 
 const purchaseHighlight = catchAsync(async (req, res) => {
-  const data = await service.purchaseHighlight(req.params.id, req.user.id, { tier: req.body.tier });
+  const data = await service.purchaseHighlight(req.params.id, req.user.id, {
+    tier: req.body.tier,
+    card: req.body.card,
+  });
   return sendCreated(res, data, 'Compra de destaque iniciada.');
+});
+
+// Catálogo público dos pacotes de destaque (preços/vigência reais).
+const highlightPackages = catchAsync(async (req, res) => {
+  const data = await service.listHighlightPackages();
+  return sendOk(res, data);
+});
+
+// Histórico/status de destaque do produto (dono ou admin).
+const listHighlights = catchAsync(async (req, res) => {
+  const data = await service.listHighlights(req.params.id, req.user);
+  return sendOk(res, data);
 });
 
 module.exports = {
@@ -93,4 +108,6 @@ module.exports = {
   setStatus,
   remove,
   purchaseHighlight,
+  highlightPackages,
+  listHighlights,
 };

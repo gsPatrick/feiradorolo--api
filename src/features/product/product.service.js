@@ -13,6 +13,7 @@ const db = require('../../models');
 const AppError = require('../../utils/AppError');
 const settings = require('../../services/settings.cache');
 const mercadopago = require('../../providers/mercado-pago/mercadopago.provider');
+const logger = require('../../utils/logger');
 
 const HIGHLIGHT_TIERS = ['silver', 'gold', 'diamond'];
 
@@ -375,12 +376,137 @@ async function remove(id, sellerId, { isAdmin = false } = {}) {
 
 /* -------------------------------- highlight ------------------------------- */
 
+const APPROVED_STATUSES = new Set(['approved', 'authorized']);
+
+/** Primeiro nome do usuário (para o Customer do MP). */
+function firstName(user) {
+  return String(user.name || '').trim().split(/\s+/)[0] || undefined;
+}
+
 /**
- * Compra de destaque (Pix imediato). Cria Payment pendente + ProductHighlight
- * pendente e tenta gerar o Pix no gateway. Se o gateway não estiver configurado
- * (503), ainda retorna o pagamento pendente com uma nota.
+ * Salva um cartão padrão para o usuário a partir do token do checkout transparente
+ * (espelha plan.service._saveCardForUser). Retorna o registro SavedCard.
  */
-async function purchaseHighlight(productId, userId, { tier } = {}) {
+async function _saveCardForUser(user, card) {
+  const customer = await mercadopago.findOrCreateCustomer({ email: user.email, firstName: firstName(user) });
+  const saved = await mercadopago.saveCardToCustomer({ customerId: customer.id, token: card.token });
+  await db.SavedCard.update({ is_default: false }, { where: { user_id: user.id } });
+  return db.SavedCard.create({
+    user_id: user.id,
+    mp_customer_id: customer.id,
+    mp_card_id: saved.id,
+    last_four: saved.last_four_digits || null,
+    brand: (saved.payment_method && (saved.payment_method.name || saved.payment_method.id)) || card.payment_method_id || null,
+    is_default: true,
+  });
+}
+
+/**
+ * Compra de destaque no CARTÃO (espelha plan.service._chargePlanWithCard).
+ * Cria Payment + ProductHighlight pendentes, cobra no MP e — se aprovado —
+ * ativa o destaque na hora (mesmo caminho do webhook).
+ */
+async function _chargeHighlightWithCard(product, user, tier, pkg, card) {
+  let savedCard = card.savedCard || null;
+  if (!savedCard && card.save_card && card.token) {
+    savedCard = await _saveCardForUser(user, card);
+  }
+
+  const { payment, highlight } = await db.sequelize.transaction(async (transaction) => {
+    const payment = await db.Payment.create(
+      {
+        user_id: user.id,
+        purpose: 'highlight',
+        provider: 'mercado_pago',
+        method: 'credit_card',
+        amount: pkg.price,
+        status: 'pending',
+        currency: 'BRL',
+        installments: 1,
+      },
+      { transaction }
+    );
+    const highlight = await db.ProductHighlight.create(
+      {
+        product_id: product.id,
+        user_id: user.id,
+        tier,
+        price: pkg.price,
+        currency: 'BRL',
+        status: 'pending',
+        payment_id: payment.id,
+        starts_at: null,
+        ends_at: null,
+      },
+      { transaction }
+    );
+    return { payment, highlight };
+  });
+
+  let mpPayment = null;
+  let note = null;
+  try {
+    if (savedCard) {
+      mpPayment = await mercadopago.chargeSavedCard({
+        customerId: savedCard.mp_customer_id,
+        cardId: savedCard.mp_card_id,
+        amount: pkg.price,
+        description: `Destaque ${tier}`,
+        payerEmail: user.email,
+        paymentMethodId: card.payment_method_id || savedCard.brand || undefined,
+        externalReference: payment.id,
+        idempotencyKey: `highlight-card-${payment.id}`,
+        metadata: { payment_id: payment.id, highlight_id: highlight.id },
+      });
+    } else {
+      mpPayment = await mercadopago.createPayment({
+        amount: pkg.price,
+        description: `Destaque ${tier}`,
+        payerEmail: user.email,
+        payerFirstName: firstName(user),
+        token: card.token,
+        paymentMethodId: card.payment_method_id,
+        installments: 1,
+        externalReference: payment.id,
+        idempotencyKey: `highlight-card-${payment.id}`,
+        metadata: { payment_id: payment.id, highlight_id: highlight.id },
+      });
+    }
+  } catch (err) {
+    logger.error(`product.service: cobrança no cartão falhou para pagamento ${payment.id}:`, err.message);
+    note = 'Falha ao processar o cartão. Tente novamente ou use Pix.';
+    return { payment, highlight, approved: false, note };
+  }
+
+  const approved = APPROVED_STATUSES.has(mpPayment && mpPayment.status);
+  try {
+    await payment.update({
+      external_id: mpPayment && mpPayment.id != null ? String(mpPayment.id) : payment.external_id,
+      status: approved ? 'approved' : 'rejected',
+      paid_at: approved ? new Date() : null,
+      payload: mpPayment || payment.payload,
+    });
+  } catch (err) {
+    logger.error('product.service: falha ao atualizar Payment após cobrança no cartão:', err.message);
+  }
+
+  if (approved) {
+    try {
+      await activateHighlight(highlight.id);
+    } catch (err) {
+      logger.error('product.service: falha ao ativar destaque aprovado por cartão:', err.message);
+    }
+  }
+
+  return { payment, highlight, approved, note };
+}
+
+/**
+ * Compra de destaque. Sem cartão = Pix imediato (comportamento original): cria
+ * Payment pendente + ProductHighlight pendente e gera o Pix no gateway. Com
+ * `opts.card` = débito no cartão (e ativa na hora se aprovado).
+ */
+async function purchaseHighlight(productId, userId, { tier, card } = {}) {
   if (!tier || !HIGHLIGHT_TIERS.includes(tier)) {
     throw AppError.unprocessable(
       `tier inválido. Valores: ${HIGHLIGHT_TIERS.join(', ')}.`,
@@ -402,6 +528,19 @@ async function purchaseHighlight(productId, userId, { tier } = {}) {
   const user = await db.User.findByPk(userId);
   if (!user) throw AppError.notFound('Usuário não encontrado.', 'USER_NOT_FOUND');
 
+  // Cartão → débito imediato (ativa na hora se aprovado).
+  if (card && card.token) {
+    const result = await _chargeHighlightWithCard(product, user, tier, pkg, card);
+    return {
+      payment: result.payment,
+      highlight: result.highlight,
+      approved: result.approved,
+      method: 'credit_card',
+      note: result.note || null,
+    };
+  }
+
+  // Sem cartão → Pix (comportamento original).
   return db.sequelize.transaction(async (transaction) => {
     const payment = await db.Payment.create(
       {
@@ -452,13 +591,101 @@ async function purchaseHighlight(productId, userId, { tier } = {}) {
   });
 }
 
+/** Catálogo público dos pacotes de destaque (preços/vigência reais do admin). */
+async function listHighlightPackages() {
+  const pkgs = await settings.highlightPackages();
+  return (Array.isArray(pkgs) ? pkgs : [])
+    .map((p) => ({
+      tier: p.tier,
+      name: p.name,
+      price: Number(p.price),
+      duration_days: Number(p.duration_days),
+      sort_order: Number(p.sort_order) || 0,
+    }))
+    .sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/**
+ * Histórico/status de destaque de um produto (dono ou admin).
+ * - current: destaque ativo (Product.highlight_tier != 'none' + expira no futuro,
+ *   ou ProductHighlight status 'active').
+ * - history: todos os ProductHighlight (mais recentes primeiro), com o status do
+ *   Payment associado (para mostrar o que está pago/pendente).
+ */
+async function listHighlights(productId, user) {
+  const product = await db.Product.findByPk(productId);
+  if (!product) throw AppError.notFound('Produto não encontrado.', 'PRODUCT_NOT_FOUND');
+
+  const isAdmin = !!(user && (user.is_admin === true || user.admin_role));
+  if (!isAdmin && (!user || product.seller_id !== user.id)) {
+    throw AppError.forbidden('Você não é o dono deste anúncio.', 'NOT_PRODUCT_OWNER');
+  }
+
+  const rows = await db.ProductHighlight.findAll({
+    where: { product_id: productId },
+    include: [{ model: db.Payment, as: 'payment', attributes: ['id', 'status', 'method'] }],
+    order: [['created_at', 'DESC']],
+  });
+
+  const PAID_STATUSES = ['approved', 'authorized'];
+  const history = rows.map((h) => {
+    const payment = h.payment || null;
+    return {
+      id: h.id,
+      tier: h.tier,
+      status: h.status,
+      price: h.price != null ? Number(h.price) : null,
+      starts_at: h.starts_at,
+      ends_at: h.ends_at,
+      created_at: h.created_at,
+      paid: !!(payment && PAID_STATUSES.includes(payment.status)),
+      payment: payment
+        ? { id: payment.id, status: payment.status, method: payment.method }
+        : null,
+    };
+  });
+
+  // current: prioriza o estado consolidado no produto; senão, um highlight 'active'.
+  let current = null;
+  const now = Date.now();
+  if (
+    product.highlight_tier &&
+    product.highlight_tier !== 'none' &&
+    (!product.highlight_expires_at || new Date(product.highlight_expires_at).getTime() > now)
+  ) {
+    current = { tier: product.highlight_tier, ends_at: product.highlight_expires_at };
+  } else {
+    const active = rows.find(
+      (h) => h.status === 'active' && (!h.ends_at || new Date(h.ends_at).getTime() > now)
+    );
+    if (active) current = { tier: active.tier, ends_at: active.ends_at };
+  }
+
+  return { current, history };
+}
+
 /**
  * Ativa o destaque após aprovação do pagamento (chamado pelo webhook).
  * Define active + janela de vigência e propaga para o produto.
+ * Aceita um id de ProductHighlight, um Payment (objeto) ou um payment_id.
  */
-async function activateHighlight(highlightId) {
-  const highlight = await db.ProductHighlight.findByPk(highlightId);
+async function activateHighlight(ref) {
+  // Resolve o ProductHighlight a partir de um payment (webhook passa o Payment),
+  // de um payment_id ou diretamente de um highlight id.
+  let highlight = null;
+  const refId = ref && typeof ref === 'object' ? ref.id : ref;
+  if (ref && typeof ref === 'object' && ref.purpose === 'highlight') {
+    highlight = await db.ProductHighlight.findOne({ where: { payment_id: ref.id } });
+  }
+  if (!highlight && refId) {
+    highlight =
+      (await db.ProductHighlight.findOne({ where: { payment_id: refId } })) ||
+      (await db.ProductHighlight.findByPk(refId));
+  }
   if (!highlight) throw AppError.notFound('Destaque não encontrado.', 'HIGHLIGHT_NOT_FOUND');
+
+  // Idempotência: já ativado (ex.: cartão ativou e o webhook chegou depois).
+  if (highlight.status === 'active') return highlight;
 
   const pkg = await settings.highlight(highlight.tier);
   const durationDays = pkg && pkg.duration_days ? Number(pkg.duration_days) : 7;
@@ -496,4 +723,6 @@ module.exports = {
   remove,
   purchaseHighlight,
   activateHighlight,
+  listHighlightPackages,
+  listHighlights,
 };
