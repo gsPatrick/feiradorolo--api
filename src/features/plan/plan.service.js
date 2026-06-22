@@ -8,9 +8,13 @@
  * no Mercado Pago. A ativação ocorre no webhook, quando o pagamento é aprovado
  * (payment.service._activatePlanSubscription), espelhando o destaque.
  */
+const { Op } = require('sequelize');
 const db = require('../../models');
 const AppError = require('../../utils/AppError');
 const mercadopago = require('../../providers/mercado-pago/mercadopago.provider');
+
+/** Janela (dias) para considerar uma renovação pendente como "recente" (idempotência). */
+const PENDING_RENEWAL_WINDOW_DAYS = 7;
 
 /** Lista os planos ativos (catálogo). */
 async function listActive() {
@@ -35,18 +39,16 @@ async function listMine(userId) {
  * Se o gateway não estiver configurado (503), retorna a assinatura/pagamento
  * pendentes com uma nota (espelha purchaseHighlight).
  */
-async function subscribe(planId, userId) {
-  const plan = await db.Plan.findByPk(planId);
-  if (!plan) throw AppError.notFound('Plano não encontrado.', 'PLAN_NOT_FOUND');
-  if (!plan.is_active) throw AppError.conflict('Este plano não está disponível.', 'PLAN_INACTIVE');
-
-  const user = await db.User.findByPk(userId);
-  if (!user) throw AppError.notFound('Usuário não encontrado.', 'USER_NOT_FOUND');
-
+/**
+ * Cria a tripla Payment(pending) + PlanSubscription(pending) + Pix dentro de uma
+ * transação. Núcleo compartilhado por `subscribe` (compra) e `createRenewalCharge`
+ * (renovação). `extraMeta` é mesclado no metadata da assinatura (ex.: renewal=true).
+ */
+async function _createPlanCharge(plan, user, extraMeta = {}) {
   return db.sequelize.transaction(async (transaction) => {
     const payment = await db.Payment.create(
       {
-        user_id: userId,
+        user_id: user.id,
         purpose: 'plan',
         provider: 'mercado_pago',
         method: 'pix',
@@ -60,13 +62,13 @@ async function subscribe(planId, userId) {
 
     const subscription = await db.PlanSubscription.create(
       {
-        user_id: userId,
+        user_id: user.id,
         plan_id: plan.id,
         payment_id: payment.id,
         status: 'pending',
         starts_at: null,
         ends_at: null,
-        metadata: { payment_id: payment.id },
+        metadata: { payment_id: payment.id, ...extraMeta },
       },
       { transaction }
     );
@@ -97,6 +99,59 @@ async function subscribe(planId, userId) {
 
     return { subscription_id: subscription.id, subscription, payment, pix, note };
   });
+}
+
+async function subscribe(planId, userId) {
+  const plan = await db.Plan.findByPk(planId);
+  if (!plan) throw AppError.notFound('Plano não encontrado.', 'PLAN_NOT_FOUND');
+  if (!plan.is_active) throw AppError.conflict('Este plano não está disponível.', 'PLAN_INACTIVE');
+
+  const user = await db.User.findByPk(userId);
+  if (!user) throw AppError.notFound('Usuário não encontrado.', 'USER_NOT_FOUND');
+
+  return _createPlanCharge(plan, user);
+}
+
+/**
+ * Gera uma nova cobrança de RENOVAÇÃO a partir de uma assinatura vencida.
+ * Cria um novo Payment(pending) + nova PlanSubscription(pending) + Pix para o
+ * MESMO user_id/plan_id. A ativação ocorre no webhook do pagamento, como na
+ * compra original (payment.service._activatePlanSubscription).
+ *
+ * Idempotência: se já houver uma assinatura `pending` recente (renovação não
+ * paga) para o mesmo user+plan, retorna { skipped: true } SEM criar outra.
+ *
+ * @param {object} subscription Assinatura vencida (precisa de user_id e plan_id).
+ * @returns {Promise<{subscription, payment, pix, note}|{skipped:true}>}
+ */
+async function createRenewalCharge(subscription) {
+  if (!subscription) throw AppError.badRequest('Assinatura é obrigatória.', 'SUBSCRIPTION_REQUIRED');
+  const userId = subscription.user_id;
+  const planId = subscription.plan_id;
+
+  const plan = await db.Plan.findByPk(planId);
+  if (!plan) throw AppError.notFound('Plano não encontrado.', 'PLAN_NOT_FOUND');
+  if (!plan.is_active) throw AppError.conflict('Este plano não está disponível.', 'PLAN_INACTIVE');
+
+  const user = await db.User.findByPk(userId);
+  if (!user) throw AppError.notFound('Usuário não encontrado.', 'USER_NOT_FOUND');
+
+  // Idempotência: não cria se já existe renovação pendente recente para user+plan.
+  const since = new Date(Date.now() - PENDING_RENEWAL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const existingPending = await db.PlanSubscription.findOne({
+    where: {
+      user_id: userId,
+      plan_id: planId,
+      status: 'pending',
+      created_at: { [Op.gt]: since },
+    },
+    order: [['created_at', 'DESC']],
+  });
+  if (existingPending) {
+    return { skipped: true, reason: 'PENDING_RENEWAL_EXISTS', subscription: existingPending };
+  }
+
+  return _createPlanCharge(plan, user, { renewal: true, renewed_from: subscription.id });
 }
 
 /* ------------------------------ Admin (CRUD) ------------------------------ */
@@ -148,6 +203,7 @@ module.exports = {
   listActive,
   listMine,
   subscribe,
+  createRenewalCharge,
   adminList,
   adminCreate,
   adminUpdate,

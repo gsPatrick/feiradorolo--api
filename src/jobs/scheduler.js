@@ -214,6 +214,111 @@ async function expirePaidListings() {
   }
 }
 
+/**
+ * 5. Renovação de planos vencidos: para cada assinatura EXPIRADA (status
+ *    'expired', ends_at < now) que ainda NÃO tem uma renovação pendente para o
+ *    mesmo user+plan, gera uma nova cobrança de renovação (Payment pending + nova
+ *    PlanSubscription pending + Pix via checkout transparente) e notifica o
+ *    usuário por e-mail com o link/Pix para pagar.
+ *
+ *    A REATIVAÇÃO do anúncio NÃO acontece aqui: ela ocorre quando o pagamento da
+ *    renovação for aprovado — o webhook chama payment.service._activatePlanSubscription,
+ *    que coloca a nova assinatura como 'active' com nova janela (duration_days). A
+ *    partir daí o job 4 (expirePaidListings) deixa de pausar os anúncios do vendedor
+ *    naquela categoria, pois ele volta a ter cobertura ativa.
+ */
+async function renewExpiredPlans() {
+  const now = new Date();
+  const planService = require('../features/plan/plan.service');
+  const emailProvider = require('../providers/email/email.provider');
+  const settings = require('../services/settings.cache');
+
+  // Assinaturas expiradas (uma consulta), com usuário e plano para a notificação.
+  const expired = await db.PlanSubscription.findAll({
+    where: {
+      status: 'expired',
+      ends_at: { [Op.ne]: null, [Op.lt]: now },
+    },
+    include: [
+      { model: db.User, as: 'user', attributes: ['id', 'name', 'email'] },
+      { model: db.Plan, as: 'plan', attributes: ['id', 'name', 'price', 'currency', 'is_active'] },
+    ],
+    order: [['ends_at', 'ASC']],
+  });
+  if (!expired.length) return;
+
+  // Pré-carrega as renovações pendentes recentes (evita N+1 na idempotência):
+  // mapa "user_id:plan_id" -> true para os pares que já têm pendência.
+  const window = new Date(now.getTime() - 7 * 24 * HOUR_MS);
+  const pendingRows = await db.PlanSubscription.findAll({
+    attributes: ['user_id', 'plan_id'],
+    where: { status: 'pending', created_at: { [Op.gt]: window } },
+    raw: true,
+  });
+  const pendingPairs = new Set(pendingRows.map((r) => `${r.user_id}:${r.plan_id}`));
+
+  // Evita gerar duas renovações para o mesmo par no mesmo lote (caso haja várias
+  // assinaturas expiradas do mesmo user+plan).
+  const handled = new Set();
+  const webUrl = (await settings.get('app.web_url', '')) || '';
+
+  let generated = 0;
+  for (const sub of expired) {
+    const pairKey = `${sub.user_id}:${sub.plan_id}`;
+    if (pendingPairs.has(pairKey) || handled.has(pairKey)) continue;
+    handled.add(pairKey);
+
+    try {
+      const result = await planService.createRenewalCharge(sub);
+      if (result && result.skipped) continue;
+      generated += 1;
+
+      // Notifica o usuário por e-mail (best-effort, não derruba o lote).
+      const user = sub.user;
+      if (user && user.email) {
+        const planName = (sub.plan && sub.plan.name) || 'seu plano';
+        const payUrl = webUrl ? `${webUrl.replace(/\/+$/, '')}/pedido/${result.payment.id}` : null;
+        const pixCode = result.pix && (result.pix.qr_code || (result.pix.point_of_interaction
+          && result.pix.point_of_interaction.transaction_data
+          && result.pix.point_of_interaction.transaction_data.qr_code)) || null;
+
+        const vars = {
+          name: user.name || '',
+          plan_name: planName,
+          pay_url: payUrl || '',
+          pix_code: pixCode || '',
+        };
+        const linkBlock = payUrl
+          ? `<p>Para renovar, acesse: <a href="${payUrl}">${payUrl}</a></p>`
+          : '';
+        const pixBlock = pixCode
+          ? `<p>Ou pague via Pix copia e cola:</p><pre style="white-space:pre-wrap;word-break:break-all">${pixCode}</pre>`
+          : '';
+
+        await emailProvider.sendEmail({
+          to: user.email,
+          toName: user.name || undefined,
+          templateKey: 'plan_renewal_charge',
+          vars,
+          subject: `Seu plano "${planName}" venceu — renove agora`,
+          html:
+            `<p>Olá${user.name ? ` ${user.name}` : ''},</p>` +
+            `<p>Seu plano <strong>${planName}</strong> venceu. Geramos uma nova cobrança de renovação para você continuar com seus anúncios ativos.</p>` +
+            linkBlock +
+            pixBlock +
+            `<p>Assim que o pagamento for confirmado, seu plano e seus anúncios voltam a ficar ativos automaticamente.</p>`,
+        });
+      }
+    } catch (err) {
+      logger.error(`Renovação de plano falhou para assinatura ${sub.id}:`, err.message);
+    }
+  }
+
+  if (generated) {
+    logger.info(`Renovações: ${generated} cobrança(s) de renovação gerada(s) e notificada(s).`);
+  }
+}
+
 function start() {
   // A cada hora, no minuto 5.
   cron.schedule('5 * * * *', async () => {
@@ -264,8 +369,17 @@ function start() {
     }
   });
 
+  // 5. Renovar planos vencidos — 1x/dia às 09:30.
+  cron.schedule('30 9 * * *', async () => {
+    try {
+      await renewExpiredPlans();
+    } catch (err) {
+      logger.error('Job de renovação de planos vencidos falhou:', err.message);
+    }
+  });
+
   logger.info(
-    'Scheduler iniciado (escrow, expiração de destaques, bump, assinaturas e anúncios pagos).'
+    'Scheduler iniciado (escrow, expiração de destaques, bump, assinaturas, anúncios pagos e renovação de planos).'
   );
 }
 
