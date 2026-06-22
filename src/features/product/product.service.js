@@ -65,9 +65,11 @@ function buildOrder(sort) {
       return [[PRICE_EXPR(), 'DESC']];
     case 'best_selling':
       return [['favorites_count', 'DESC'], ['views_count', 'DESC'], ['created_at', 'DESC']];
-    default: // relevância: destaques primeiro, depois mais recentes
+    default: // relevância: destaques primeiro, vendedor Premium em seguida, depois recentes
       return [
         [db.sequelize.literal("CASE highlight_tier WHEN 'diamond' THEN 3 WHEN 'gold' THEN 2 WHEN 'silver' THEN 1 ELSE 0 END"), 'DESC'],
+        // Vendedor Premium ganha visibilidade extra na busca geral (paga 12% de comissão).
+        [db.sequelize.literal(`CASE WHEN "seller"."seller_tier" = 'premium' THEN 1 ELSE 0 END`), 'DESC'],
         ['favorites_count', 'DESC'],
         ['published_at', 'DESC'],
         ['created_at', 'DESC'],
