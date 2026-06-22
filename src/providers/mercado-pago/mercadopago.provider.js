@@ -186,6 +186,119 @@ async function getPayment(paymentId, sellerAccessToken = null) {
   return data;
 }
 
+/* --------------- Cartão salvo (MP Customers) — recorrência --------------- */
+/**
+ * Estas operações usam SEMPRE o ACCESS TOKEN DA PLATAFORMA (http() sem argumento),
+ * pois a cobrança de plano é receita da plataforma — não do vendedor. O fluxo de
+ * recorrência sem CVV é: salvar o cartão no Customer → gerar um card_token a partir
+ * do card_id (server-side) → criar o pagamento com esse token.
+ */
+
+/**
+ * Acha (por e-mail) ou cria um Customer no MP. Retorna { id }.
+ */
+async function findOrCreateCustomer({ email, firstName = null }) {
+  const api = await http();
+  try {
+    const { data } = await api.get(`/v1/customers/search?email=${encodeURIComponent(email)}`);
+    const found = data && Array.isArray(data.results) && data.results[0];
+    if (found && found.id) return { id: found.id };
+    const body = { email, ...(firstName ? { first_name: firstName } : {}) };
+    const created = await api.post('/v1/customers', body, {
+      headers: { 'X-Idempotency-Key': `customer-${email}` },
+    });
+    return { id: created.data.id };
+  } catch (e) {
+    const detail = e.response && e.response.data;
+    const msg =
+      (detail && (detail.message || (detail.cause && detail.cause[0] && detail.cause[0].description))) ||
+      e.message;
+    throw new AppError(`Mercado Pago (customer): ${msg}`, 502, 'MP_CUSTOMER_ERROR', detail);
+  }
+}
+
+/**
+ * Salva um cartão (a partir de um token de cartão do checkout transparente) no
+ * Customer. Retorna { id (card_id), last_four_digits, payment_method }.
+ */
+async function saveCardToCustomer({ customerId, token }) {
+  const api = await http();
+  try {
+    const { data } = await api.post(
+      `/v1/customers/${customerId}/cards`,
+      { token },
+      { headers: { 'X-Idempotency-Key': `savecard-${customerId}-${token}` } }
+    );
+    return {
+      id: data.id,
+      last_four_digits: data.last_four_digits,
+      payment_method: data.payment_method, // { id, name, payment_type_id, ... }
+    };
+  } catch (e) {
+    const detail = e.response && e.response.data;
+    const msg =
+      (detail && (detail.message || (detail.cause && detail.cause[0] && detail.cause[0].description))) ||
+      e.message;
+    throw new AppError(`Mercado Pago (salvar cartão): ${msg}`, 502, 'MP_SAVE_CARD_ERROR', detail);
+  }
+}
+
+/**
+ * Gera um card_token a partir de um cartão salvo (card_id). Server-side, sem CVV —
+ * usado para a cobrança recorrente. Retorna { id (token) }.
+ */
+async function tokenFromSavedCard({ cardId }) {
+  const api = await http();
+  try {
+    const { data } = await api.post(
+      '/v1/card_tokens',
+      { card_id: cardId },
+      { headers: { 'X-Idempotency-Key': `cardtoken-${cardId}-${Date.now()}` } }
+    );
+    return { id: data.id };
+  } catch (e) {
+    const detail = e.response && e.response.data;
+    const msg =
+      (detail && (detail.message || (detail.cause && detail.cause[0] && detail.cause[0].description))) ||
+      e.message;
+    throw new AppError(`Mercado Pago (token de cartão salvo): ${msg}`, 502, 'MP_RECURRING_ERROR', detail);
+  }
+}
+
+/**
+ * Cobra um cartão salvo (recorrência). Gera o token via tokenFromSavedCard e cria
+ * o pagamento com o ACCESS TOKEN DA PLATAFORMA. Retorna o pagamento do MP.
+ * @param {object} p { customerId, cardId, amount, description, payerEmail,
+ *   paymentMethodId, externalReference, metadata }
+ */
+async function chargeSavedCard(p) {
+  const api = await http();
+  const { id: token } = await tokenFromSavedCard({ cardId: p.cardId });
+  const body = {
+    transaction_amount: Number(p.amount),
+    token,
+    description: p.description,
+    installments: 1,
+    payer: { type: 'customer', id: p.customerId, email: p.payerEmail },
+    ...(p.paymentMethodId ? { payment_method_id: p.paymentMethodId } : {}),
+    ...(p.externalReference ? { external_reference: p.externalReference } : {}),
+    metadata: p.metadata || {},
+  };
+  const idempotencyKey = String(p.idempotencyKey || `recurring-${p.cardId}-${Date.now()}`);
+  try {
+    const { data } = await api.post('/v1/payments', body, {
+      headers: { 'X-Idempotency-Key': idempotencyKey },
+    });
+    return data;
+  } catch (e) {
+    const detail = e.response && e.response.data;
+    const msg =
+      (detail && (detail.message || (detail.cause && detail.cause[0] && detail.cause[0].description))) ||
+      e.message;
+    throw new AppError(`Mercado Pago (cobrança recorrente): ${msg}`, 502, 'MP_RECURRING_ERROR', detail);
+  }
+}
+
 async function refundPayment(paymentId, amount = null, sellerAccessToken = null) {
   const api = await http(sellerAccessToken);
   const body = amount != null ? { amount: Number(amount) } : {};
@@ -211,4 +324,8 @@ module.exports = {
   capturePayment,
   getPayment,
   refundPayment,
+  findOrCreateCustomer,
+  saveCardToCustomer,
+  tokenFromSavedCard,
+  chargeSavedCard,
 };

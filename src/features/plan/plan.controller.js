@@ -17,10 +17,21 @@ const mine = catchAsync(async (req, res) => {
   return sendOk(res, subscriptions);
 });
 
-/** Compra/assinatura de um plano (gera Pix dinâmico via Mercado Pago). */
+/**
+ * Compra/assinatura de um plano. Sem `card` no body → gera Pix dinâmico. Com
+ * `card` ({ token, payment_method_id, save_card }) → débito no cartão (checkout
+ * transparente), opcionalmente salvando o cartão para renovação automática.
+ */
 const subscribe = catchAsync(async (req, res) => {
-  const result = await planService.subscribe(req.params.planId, req.user.id);
-  return sendCreated(res, result, 'Assinatura criada. Conclua o pagamento via Pix.');
+  const card = req.body && req.body.card;
+  const result = await planService.subscribe(req.params.planId, req.user.id, { card });
+  const message =
+    result.method === 'credit_card'
+      ? result.approved
+        ? 'Plano contratado e ativado com sucesso.'
+        : result.note || 'Não foi possível aprovar o pagamento no cartão.'
+      : 'Assinatura criada. Conclua o pagamento via Pix.';
+  return sendCreated(res, result, message);
 });
 
 /* Admin */

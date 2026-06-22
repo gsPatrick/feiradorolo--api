@@ -12,6 +12,7 @@ const { Op } = require('sequelize');
 const db = require('../../models');
 const AppError = require('../../utils/AppError');
 const mercadopago = require('../../providers/mercado-pago/mercadopago.provider');
+const logger = require('../../utils/logger');
 
 /** Janela (dias) para considerar uma renovação pendente como "recente" (idempotência). */
 const PENDING_RENEWAL_WINDOW_DAYS = 7;
@@ -101,7 +102,173 @@ async function _createPlanCharge(plan, user, extraMeta = {}) {
   });
 }
 
-async function subscribe(planId, userId) {
+/* ---------------------- Débito automático (cartão) ----------------------- */
+
+const APPROVED_STATUSES = new Set(['approved', 'authorized']);
+
+/** Primeiro nome do usuário (para o Customer do MP). */
+function firstName(user) {
+  return String(user.name || '').trim().split(/\s+/)[0] || undefined;
+}
+
+/**
+ * Ativa imediatamente uma assinatura cujo pagamento já voltou aprovado (cartão),
+ * espelhando payment.service._activatePlanSubscription (mesmo caminho do webhook).
+ * Best-effort: não derruba o fluxo.
+ */
+async function _activateApprovedSubscription(subscription, plan) {
+  try {
+    if (subscription.status === 'active') return;
+    const durationDays = plan && plan.duration_days ? Number(plan.duration_days) : null;
+    const startsAt = new Date();
+    const endsAt = durationDays
+      ? new Date(startsAt.getTime() + durationDays * 24 * 60 * 60 * 1000)
+      : null;
+    await subscription.update({ status: 'active', starts_at: startsAt, ends_at: endsAt });
+  } catch (err) {
+    logger.error('plan.service: falha ao ativar assinatura aprovada por cartão:', err.message);
+  }
+}
+
+/**
+ * Garante um SavedCard padrão para o usuário a partir de um token de cartão do
+ * checkout transparente: cria/acha o Customer, salva o cartão e grava localmente,
+ * desmarcando os demais cartões como não-padrão. Retorna o registro SavedCard.
+ */
+async function _saveCardForUser(user, card) {
+  const customer = await mercadopago.findOrCreateCustomer({
+    email: user.email,
+    firstName: firstName(user),
+  });
+  const saved = await mercadopago.saveCardToCustomer({ customerId: customer.id, token: card.token });
+  await db.SavedCard.update({ is_default: false }, { where: { user_id: user.id } });
+  const record = await db.SavedCard.create({
+    user_id: user.id,
+    mp_customer_id: customer.id,
+    mp_card_id: saved.id,
+    last_four: saved.last_four_digits || null,
+    brand: (saved.payment_method && (saved.payment_method.name || saved.payment_method.id)) || card.payment_method_id || null,
+    is_default: true,
+  });
+  return record;
+}
+
+/**
+ * Cobra um plano no cartão (débito automático). Cria Payment + PlanSubscription
+ * pendentes, cobra via cartão salvo (chargeSavedCard) ou token direto (createPayment),
+ * e — se o MP aprovar — ativa a assinatura na hora pelo mesmo caminho do webhook.
+ *
+ * @param {object} card { token, payment_method_id, save_card, savedCard }
+ *   savedCard (opcional) = registro SavedCard já existente (renovação automática).
+ * @returns {Promise<{subscription, payment, approved, mpPayment, note}>}
+ */
+async function _chargePlanWithCard(plan, user, card, extraMeta = {}) {
+  // Se for salvar e ainda não há SavedCard, salva agora (fora da transação — chamadas MP).
+  let savedCard = card.savedCard || null;
+  if (!savedCard && card.save_card && card.token) {
+    savedCard = await _saveCardForUser(user, card);
+  }
+
+  // Cria Payment + PlanSubscription pendentes (cartão).
+  const { payment, subscription } = await db.sequelize.transaction(async (transaction) => {
+    const payment = await db.Payment.create(
+      {
+        user_id: user.id,
+        purpose: 'plan',
+        provider: 'mercado_pago',
+        method: 'credit_card',
+        amount: plan.price,
+        status: 'pending',
+        currency: plan.currency || 'BRL',
+        installments: 1,
+        split: { plan_id: plan.id },
+      },
+      { transaction }
+    );
+    const subscription = await db.PlanSubscription.create(
+      {
+        user_id: user.id,
+        plan_id: plan.id,
+        payment_id: payment.id,
+        status: 'pending',
+        starts_at: null,
+        ends_at: null,
+        metadata: { payment_id: payment.id, ...extraMeta },
+      },
+      { transaction }
+    );
+    await payment.update(
+      { split: { plan_id: plan.id, subscription_id: subscription.id } },
+      { transaction }
+    );
+    return { payment, subscription };
+  });
+
+  // Faz a cobrança no MP (token de cartão salvo ou token direto do checkout).
+  let mpPayment = null;
+  let note = null;
+  try {
+    if (savedCard) {
+      mpPayment = await mercadopago.chargeSavedCard({
+        customerId: savedCard.mp_customer_id,
+        cardId: savedCard.mp_card_id,
+        amount: plan.price,
+        description: `Plano ${plan.name}`,
+        payerEmail: user.email,
+        paymentMethodId: card.payment_method_id || savedCard.brand || undefined,
+        externalReference: payment.id,
+        idempotencyKey: `plan-card-${payment.id}`,
+        metadata: { payment_id: payment.id, plan_id: plan.id, subscription_id: subscription.id },
+      });
+    } else {
+      mpPayment = await mercadopago.createPayment({
+        amount: plan.price,
+        description: `Plano ${plan.name}`,
+        payerEmail: user.email,
+        payerFirstName: firstName(user),
+        token: card.token,
+        paymentMethodId: card.payment_method_id,
+        installments: 1,
+        externalReference: payment.id,
+        idempotencyKey: `plan-card-${payment.id}`,
+        metadata: { payment_id: payment.id, plan_id: plan.id, subscription_id: subscription.id },
+      });
+    }
+  } catch (err) {
+    logger.error(`plan.service: cobrança no cartão falhou para pagamento ${payment.id}:`, err.message);
+    note = 'Falha ao processar o cartão. Tente novamente ou use Pix.';
+    return { payment, subscription, approved: false, mpPayment: null, note, error: err };
+  }
+
+  // Reflete o resultado no Payment local.
+  const mpStatus = mpPayment && mpPayment.status;
+  const approved = APPROVED_STATUSES.has(mpStatus);
+  try {
+    await payment.update({
+      external_id: mpPayment && mpPayment.id != null ? String(mpPayment.id) : payment.external_id,
+      status: approved ? 'approved' : 'rejected',
+      paid_at: approved ? new Date() : null,
+      payload: mpPayment || payment.payload,
+    });
+  } catch (err) {
+    logger.error('plan.service: falha ao atualizar Payment após cobrança no cartão:', err.message);
+  }
+
+  if (approved) {
+    await _activateApprovedSubscription(subscription, plan);
+  }
+
+  return { payment, subscription, approved, mpPayment, note };
+}
+
+/**
+ * Compra/assinatura de um plano.
+ * @param {string} planId
+ * @param {string} userId
+ * @param {object} [opts] { card: { token, payment_method_id, save_card } }
+ *   Sem cartão = Pix (comportamento original). Com cartão = débito (e salva, se pedido).
+ */
+async function subscribe(planId, userId, opts = {}) {
   const plan = await db.Plan.findByPk(planId);
   if (!plan) throw AppError.notFound('Plano não encontrado.', 'PLAN_NOT_FOUND');
   if (!plan.is_active) throw AppError.conflict('Este plano não está disponível.', 'PLAN_INACTIVE');
@@ -109,6 +276,21 @@ async function subscribe(planId, userId) {
   const user = await db.User.findByPk(userId);
   if (!user) throw AppError.notFound('Usuário não encontrado.', 'USER_NOT_FOUND');
 
+  const card = opts && opts.card;
+  if (card && card.token) {
+    const result = await _chargePlanWithCard(plan, user, card);
+    const subscription = result.subscription;
+    return {
+      subscription_id: subscription.id,
+      subscription,
+      payment: result.payment,
+      approved: result.approved,
+      method: 'credit_card',
+      note: result.note || null,
+    };
+  }
+
+  // Sem cartão → Pix (comportamento original).
   return _createPlanCharge(plan, user);
 }
 
@@ -151,7 +333,38 @@ async function createRenewalCharge(subscription) {
     return { skipped: true, reason: 'PENDING_RENEWAL_EXISTS', subscription: existingPending };
   }
 
-  return _createPlanCharge(plan, user, { renewal: true, renewed_from: subscription.id });
+  const renewalMeta = { renewal: true, renewed_from: subscription.id };
+
+  // Débito automático: se o usuário tem um cartão salvo padrão, cobra direto.
+  const defaultCard = await db.SavedCard.findOne({
+    where: { user_id: userId, is_default: true },
+    order: [['created_at', 'DESC']],
+  });
+
+  if (defaultCard) {
+    try {
+      const result = await _chargePlanWithCard(
+        plan,
+        user,
+        { savedCard: defaultCard, payment_method_id: defaultCard.brand || undefined },
+        renewalMeta
+      );
+      if (result.approved) {
+        logger.info(`Renovação automática (cartão) APROVADA para assinatura ${subscription.id} (user ${userId}).`);
+        return { ...result, method: 'credit_card', auto: true };
+      }
+      logger.warn(`Renovação automática (cartão) NÃO aprovada para assinatura ${subscription.id}; caindo no fluxo Pix.`);
+      // Falha de cobrança → fallback Pix abaixo.
+    } catch (err) {
+      logger.error(`Renovação automática (cartão) falhou para assinatura ${subscription.id}:`, err.message);
+      // fallback Pix abaixo.
+    }
+  } else {
+    logger.info(`Renovação de assinatura ${subscription.id}: sem cartão salvo, usando fluxo Pix.`);
+  }
+
+  // Fallback / sem cartão: gera a cobrança Pix (comportamento original).
+  return _createPlanCharge(plan, user, renewalMeta);
 }
 
 /* ------------------------------ Admin (CRUD) ------------------------------ */

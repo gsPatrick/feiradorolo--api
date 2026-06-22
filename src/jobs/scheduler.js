@@ -273,15 +273,56 @@ async function renewExpiredPlans() {
       if (result && result.skipped) continue;
       generated += 1;
 
-      // Notifica o usuário por e-mail (best-effort, não derruba o lote).
       const user = sub.user;
-      if (user && user.email) {
-        const planName = (sub.plan && sub.plan.name) || 'seu plano';
-        const payUrl = webUrl ? `${webUrl.replace(/\/+$/, '')}/pedido/${result.payment.id}` : null;
-        const pixCode = result.pix && (result.pix.qr_code || (result.pix.point_of_interaction
-          && result.pix.point_of_interaction.transaction_data
-          && result.pix.point_of_interaction.transaction_data.qr_code)) || null;
+      const planName = (sub.plan && sub.plan.name) || 'seu plano';
+      const notificationService = require('../features/notification/notification.service');
 
+      // CAMINHO 1: débito automático no cartão aprovado — sem ação do usuário.
+      if (result.method === 'credit_card' && result.approved) {
+        logger.info(`Renovações: assinatura ${sub.id} renovada automaticamente no cartão.`);
+        try {
+          await notificationService.notifyUser(sub.user_id, {
+            channel: 'in_app',
+            type: 'plan.renewed',
+            title: 'Plano renovado',
+            body: `Seu plano "${planName}" foi renovado automaticamente no cartão cadastrado.`,
+            data: {
+              plan_id: sub.plan_id,
+              payment_id: result.payment && result.payment.id,
+              subscription_id: result.subscription && result.subscription.id,
+            },
+          });
+        } catch (e) {
+          logger.error(`Renovações: falha ao notificar renovação automática (${sub.id}):`, e.message);
+        }
+        continue; // não precisa de lembrete Pix nem e-mail de cobrança.
+      }
+
+      // CAMINHO 2: fluxo Pix (sem cartão ou cobrança recusada) — cria lembrete in-app.
+      const payUrl = webUrl ? `${webUrl.replace(/\/+$/, '')}/pedido/${result.payment.id}` : null;
+      const pixCode = result.pix && (result.pix.qr_code || (result.pix.point_of_interaction
+        && result.pix.point_of_interaction.transaction_data
+        && result.pix.point_of_interaction.transaction_data.qr_code)) || null;
+
+      try {
+        await notificationService.notifyUser(sub.user_id, {
+          channel: 'in_app',
+          type: 'plan.renewal_pending',
+          title: 'Renovação de plano pendente',
+          body: `Seu plano "${planName}" venceu. Pague via Pix para reativar seus anúncios.`,
+          data: {
+            plan_id: sub.plan_id,
+            payment_id: result.payment && result.payment.id,
+            pay_url: payUrl,
+            pix: pixCode ? { qr_code: pixCode } : null,
+          },
+        });
+      } catch (e) {
+        logger.error(`Renovações: falha ao criar lembrete in-app (${sub.id}):`, e.message);
+      }
+
+      // Notifica o usuário por e-mail (best-effort, não derruba o lote).
+      if (user && user.email) {
         const vars = {
           name: user.name || '',
           plan_name: planName,
@@ -316,6 +357,68 @@ async function renewExpiredPlans() {
 
   if (generated) {
     logger.info(`Renovações: ${generated} cobrança(s) de renovação gerada(s) e notificada(s).`);
+  }
+}
+
+/**
+ * 6. Lembretes in-app de "plano vencendo em breve": acha assinaturas ATIVAS cujo
+ *    ends_at cai dentro de ~3 dias e cria uma Notification type 'plan.expiring'.
+ *    Evita duplicar por ciclo: usa a chave subscription_id no data e checa se já
+ *    existe uma notificação 'plan.expiring' para a mesma assinatura+ends_at.
+ */
+const EXPIRING_SOON_DAYS = 3;
+
+async function notifyExpiringPlans() {
+  const now = new Date();
+  const limit = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * HOUR_MS);
+  const notificationService = require('../features/notification/notification.service');
+
+  const soon = await db.PlanSubscription.findAll({
+    where: {
+      status: 'active',
+      ends_at: { [Op.ne]: null, [Op.gt]: now, [Op.lte]: limit },
+    },
+    include: [
+      { model: db.User, as: 'user', attributes: ['id', 'name'] },
+      { model: db.Plan, as: 'plan', attributes: ['id', 'name'] },
+    ],
+  });
+  if (!soon.length) return;
+
+  let created = 0;
+  for (const sub of soon) {
+    try {
+      const endsAt = sub.ends_at instanceof Date ? sub.ends_at : new Date(sub.ends_at);
+      const endsKey = endsAt.toISOString();
+
+      // Idempotência por ciclo: 1 lembrete por assinatura + ends_at vigente.
+      const existing = await db.Notification.findOne({
+        where: {
+          user_id: sub.user_id,
+          type: 'plan.expiring',
+          data: { subscription_id: sub.id, ends_at: endsKey },
+        },
+      });
+      if (existing) continue;
+
+      const daysLeft = Math.max(1, Math.ceil((endsAt.getTime() - now.getTime()) / (24 * HOUR_MS)));
+      const planName = (sub.plan && sub.plan.name) || 'seu plano';
+
+      await notificationService.notifyUser(sub.user_id, {
+        channel: 'in_app',
+        type: 'plan.expiring',
+        title: 'Seu plano vence em breve',
+        body: `Seu plano "${planName}" vence em ${daysLeft} dia(s). Renove para manter seus anúncios ativos.`,
+        data: { plan_id: sub.plan_id, subscription_id: sub.id, ends_at: endsKey, days_left: daysLeft },
+      });
+      created += 1;
+    } catch (err) {
+      logger.error(`Lembrete de vencimento falhou para assinatura ${sub.id}:`, err.message);
+    }
+  }
+
+  if (created) {
+    logger.info(`Lembretes: ${created} aviso(s) de "plano vencendo em breve" criado(s).`);
   }
 }
 
@@ -378,8 +481,17 @@ function start() {
     }
   });
 
+  // 6. Lembrete in-app "plano vencendo em breve" — 1x/dia às 09:00.
+  cron.schedule('0 9 * * *', async () => {
+    try {
+      await notifyExpiringPlans();
+    } catch (err) {
+      logger.error('Job de lembrete de vencimento de planos falhou:', err.message);
+    }
+  });
+
   logger.info(
-    'Scheduler iniciado (escrow, expiração de destaques, bump, assinaturas, anúncios pagos e renovação de planos).'
+    'Scheduler iniciado (escrow, expiração de destaques, bump, assinaturas, anúncios pagos, renovação de planos e lembretes de vencimento).'
   );
 }
 
