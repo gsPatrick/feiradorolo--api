@@ -519,13 +519,15 @@ async function buildSpecsList(product) {
 }
 
 /** Detalhe por id; incrementa views_count quando acesso público (`incrementViews`). */
-async function getById(id, { incrementViews = false } = {}) {
+async function getById(id, { incrementViews = false, viewerId = null } = {}) {
   const product = await db.Product.findByPk(id, {
     include: [sellerInclude(), { model: db.Category, as: 'category' }],
   });
   if (!product) throw AppError.notFound('Produto não encontrado.', 'PRODUCT_NOT_FOUND');
 
-  if (incrementViews) {
+  // Visualização só conta para quem NÃO é o dono (o vendedor abrindo/pré-visualizando
+  // o próprio anúncio não infla as visualizações).
+  if (incrementViews && (!viewerId || String(viewerId) !== String(product.seller_id))) {
     await product.increment('views_count', { by: 1 });
     product.views_count = (product.views_count || 0) + 1;
   }

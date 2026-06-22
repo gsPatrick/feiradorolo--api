@@ -49,8 +49,8 @@ const list = catchAsync(async (req, res) => {
 });
 
 const getById = catchAsync(async (req, res) => {
-  // Acesso público incrementa views_count.
-  const data = await service.getById(req.params.id, { incrementViews: true });
+  // Acesso público incrementa views_count (exceto o próprio dono).
+  const data = await service.getById(req.params.id, { incrementViews: true, viewerId: req.user && req.user.id });
   return sendOk(res, data);
 });
 
