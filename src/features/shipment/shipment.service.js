@@ -52,14 +52,21 @@ async function quote({ from_zip, to_zip, products, order_amount, category_ids, p
   if (!to_zip) {
     throw AppError.unprocessable('Informe o CEP de destino.', 'SHIPPING_MISSING_ZIP');
   }
+  // Sem origem informada (ex.: calculadora genérica da página de frete): usa o
+  // CEP de origem padrão do painel.
+  if (!from_zip) {
+    const cfgOrigin = await settings.shipping();
+    from_zip = cfgOrigin && cfgOrigin.default_origin_zip;
+  }
   if (!from_zip) {
     throw AppError.unprocessable(
       'CEP de origem não definido. Configure o CEP de origem no painel (Frete) ou no perfil do vendedor.',
       'SHIPPING_NO_ORIGIN'
     );
   }
+  // Calculadora genérica: assume um pacote padrão (1kg) quando nenhum produto é informado.
   if (!Array.isArray(products) || !products.length) {
-    throw AppError.unprocessable('Informe ao menos um produto para cotação.', 'SHIPPING_NO_PRODUCTS');
+    products = [{ weight: 1, height: 6, width: 16, length: 24, insurance_value: Number(order_amount) || 0, quantity: 1 }];
   }
 
   let raw;
