@@ -87,6 +87,12 @@ const purchaseHighlight = catchAsync(async (req, res) => {
   return sendCreated(res, data, 'Compra de destaque iniciada.');
 });
 
+// (Re)gera o Pix de um destaque pendente do produto (dono).
+const payHighlight = catchAsync(async (req, res) => {
+  const data = await service.payHighlight(req.params.id, req.params.highlightId, req.user);
+  return sendOk(res, data, 'Pix do destaque gerado.');
+});
+
 // Catálogo público dos pacotes de destaque (preços/vigência reais).
 const highlightPackages = catchAsync(async (req, res) => {
   const data = await service.listHighlightPackages();
@@ -108,6 +114,7 @@ module.exports = {
   setStatus,
   remove,
   purchaseHighlight,
+  payHighlight,
   highlightPackages,
   listHighlights,
 };

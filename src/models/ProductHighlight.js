@@ -28,6 +28,10 @@ module.exports = (sequelize, DataTypes) => {
       payment_id: { type: DataTypes.UUID, allowNull: true },
       starts_at: { type: DataTypes.DATE, allowNull: true },
       ends_at: { type: DataTypes.DATE, allowNull: true },
+      // Snapshot das métricas do produto no início do impulso (para medir o ganho).
+      views_at_start: { type: DataTypes.INTEGER, allowNull: true },
+      favorites_at_start: { type: DataTypes.INTEGER, allowNull: true },
+      sales_at_start: { type: DataTypes.INTEGER, allowNull: true },
     },
     {
       tableName: 'product_highlights',

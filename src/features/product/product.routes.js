@@ -29,6 +29,8 @@ router.post('/:id/publish', auth, controller.publish);
 
 // Upsell de destaque (Pix imediato).
 router.post('/:id/highlight', auth, controller.purchaseHighlight);
+// (Re)gera o Pix de um destaque pendente do produto (dono).
+router.post('/:id/highlights/:highlightId/pay', auth, controller.payHighlight);
 
 // Moderação admin (aprovar/rejeitar anúncio).
 router.patch('/:id/status', auth, authorize('specifications.manage'), controller.setStatus);

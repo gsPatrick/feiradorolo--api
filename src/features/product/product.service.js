@@ -377,10 +377,50 @@ async function remove(id, sellerId, { isAdmin = false } = {}) {
 /* -------------------------------- highlight ------------------------------- */
 
 const APPROVED_STATUSES = new Set(['approved', 'authorized']);
+const PAID_STATUSES = ['approved', 'authorized'];
 
 /** Primeiro nome do usuário (para o Customer do MP). */
 function firstName(user) {
   return String(user.name || '').trim().split(/\s+/)[0] || undefined;
+}
+
+/**
+ * Conta as vendas pagas de um produto (itens de pedido cujo pedido está pago).
+ * Usado como snapshot/forma simples de "vendas" (não há sales_count no produto).
+ */
+async function _salesCount(productId) {
+  try {
+    return await db.OrderItem.count({
+      where: { product_id: productId },
+      include: [{ model: db.Order, as: 'order', required: true, where: { payment_status: 'paid' } }],
+    });
+  } catch (err) {
+    logger.error('product.service: falha ao contar vendas para snapshot:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Garante que o produto NÃO tem destaque ativo vigente nem pendente.
+ * Lança HIGHLIGHT_ALREADY_ACTIVE caso exista. (Chamado antes de criar um novo.)
+ */
+async function _assertNoActiveOrPending(productId) {
+  const now = new Date();
+  const blocking = await db.ProductHighlight.findOne({
+    where: {
+      product_id: productId,
+      [Op.or]: [
+        { status: 'pending' },
+        { status: 'active', [Op.or]: [{ ends_at: null }, { ends_at: { [Op.gt]: now } }] },
+      ],
+    },
+  });
+  if (blocking) {
+    throw AppError.conflict(
+      'Este anúncio já tem um destaque ativo ou aguardando pagamento.',
+      'HIGHLIGHT_ALREADY_ACTIVE'
+    );
+  }
 }
 
 /**
@@ -520,6 +560,9 @@ async function purchaseHighlight(productId, userId, { tier, card } = {}) {
     throw AppError.forbidden('Você não é o dono deste anúncio.', 'NOT_PRODUCT_OWNER');
   }
 
+  // Bloqueia novo impulso se já há um destaque ATIVO vigente ou PENDENTE.
+  await _assertNoActiveOrPending(productId);
+
   const pkg = await settings.highlight(tier);
   if (!pkg) {
     throw AppError.notFound('Pacote de destaque indisponível.', 'HIGHLIGHT_PACKAGE_NOT_FOUND');
@@ -573,12 +616,21 @@ async function purchaseHighlight(productId, userId, { tier, card } = {}) {
     let pix = null;
     let note = null;
     try {
-      pix = await mercadopago.createPixPayment({
+      const mp = await mercadopago.createPixPayment({
         amount: pkg.price,
         description: `Destaque ${tier}`,
         payerEmail: user.email,
         externalReference: payment.id,
       });
+      pix = pixFromMpPayment(mp) || null;
+      // Persiste o id do MP e o Pix no payload (para o listHighlights/payHighlight).
+      await payment.update(
+        {
+          external_id: mp && mp.id != null ? String(mp.id) : payment.external_id,
+          payload: { ...(payment.payload || {}), ...mp, ...(pix ? { pix } : {}) },
+        },
+        { transaction }
+      );
     } catch (err) {
       if (err && err.statusCode === 503) {
         note = 'Gateway de pagamento não configurado. Pagamento criado como pendente.';
@@ -612,6 +664,45 @@ async function listHighlightPackages() {
  * - history: todos os ProductHighlight (mais recentes primeiro), com o status do
  *   Payment associado (para mostrar o que está pago/pendente).
  */
+/** Status efetivo do highlight: 'active' com ends_at passado vira 'expired'. */
+function effectiveStatus(h, now) {
+  if (h.status === 'active' && h.ends_at && new Date(h.ends_at).getTime() <= now) {
+    return 'expired';
+  }
+  return h.status;
+}
+
+/** Duração em dias do highlight (janela starts/ends, ou ends - created como fallback). */
+function durationDaysOf(h) {
+  const start = h.starts_at ? new Date(h.starts_at).getTime() : null;
+  const end = h.ends_at ? new Date(h.ends_at).getTime() : null;
+  if (start != null && end != null && end > start) {
+    return Math.round((end - start) / (24 * 60 * 60 * 1000));
+  }
+  return null;
+}
+
+/** Extrai o Pix (qr_code/qr_code_base64) persistido no payload do Payment. */
+function pixFromPayment(payment) {
+  if (!payment || !payment.payload) return null;
+  const p = payment.payload;
+  // Formato persistido por nós (payload.pix) ou retorno bruto do MP.
+  const qr =
+    (p.pix && p.pix.qr_code) ||
+    (p.point_of_interaction &&
+      p.point_of_interaction.transaction_data &&
+      p.point_of_interaction.transaction_data.qr_code) ||
+    null;
+  const qr64 =
+    (p.pix && p.pix.qr_code_base64) ||
+    (p.point_of_interaction &&
+      p.point_of_interaction.transaction_data &&
+      p.point_of_interaction.transaction_data.qr_code_base64) ||
+    null;
+  if (!qr && !qr64) return null;
+  return { qr_code: qr || null, qr_code_base64: qr64 || null };
+}
+
 async function listHighlights(productId, user) {
   const product = await db.Product.findByPk(productId);
   if (!product) throw AppError.notFound('Produto não encontrado.', 'PRODUCT_NOT_FOUND');
@@ -623,45 +714,106 @@ async function listHighlights(productId, user) {
 
   const rows = await db.ProductHighlight.findAll({
     where: { product_id: productId },
-    include: [{ model: db.Payment, as: 'payment', attributes: ['id', 'status', 'method'] }],
+    include: [{ model: db.Payment, as: 'payment', attributes: ['id', 'status', 'method', 'payload'] }],
     order: [['created_at', 'DESC']],
   });
 
-  const PAID_STATUSES = ['approved', 'authorized'];
+  const now = Date.now();
+
+  // Vendas atuais (para os results) — calculadas uma vez se houver algum item com snapshot.
+  const needsSales = rows.some((h) => h.sales_at_start != null);
+  const currentSales = needsSales ? await _salesCount(productId) : null;
+  const currentViews = Number(product.views_count || 0);
+  const currentFavorites = Number(product.favorites_count || 0);
+
   const history = rows.map((h) => {
     const payment = h.payment || null;
+    const status = effectiveStatus(h, now);
+    const paid = !!(payment && PAID_STATUSES.includes(payment.status));
+
+    // Pix só quando pendente e disponível.
+    const pix = status === 'pending' ? pixFromPayment(payment) : null;
+
+    // Resultados (ganho) só para active/expired com snapshot gravado.
+    let results = null;
+    if ((status === 'active' || status === 'expired') && h.views_at_start != null) {
+      results = {
+        views_gained: Math.max(0, currentViews - Number(h.views_at_start)),
+        favorites_gained: Math.max(0, currentFavorites - Number(h.favorites_at_start || 0)),
+        sales_gained:
+          h.sales_at_start != null && currentSales != null
+            ? Math.max(0, currentSales - Number(h.sales_at_start))
+            : null,
+      };
+    }
+
     return {
       id: h.id,
       tier: h.tier,
-      status: h.status,
       price: h.price != null ? Number(h.price) : null,
+      currency: h.currency || 'BRL',
+      status,
+      created_at: h.created_at,
       starts_at: h.starts_at,
       ends_at: h.ends_at,
-      created_at: h.created_at,
-      paid: !!(payment && PAID_STATUSES.includes(payment.status)),
-      payment: payment
-        ? { id: payment.id, status: payment.status, method: payment.method }
-        : null,
+      duration_days: durationDaysOf(h),
+      paid,
+      payment: payment ? { id: payment.id, status: payment.status, method: payment.method } : null,
+      pix,
+      results,
     };
   });
 
-  // current: prioriza o estado consolidado no produto; senão, um highlight 'active'.
+  // has_active_or_pending: existe highlight 'active' (vigente) OU 'pending'.
+  const has_active_or_pending = rows.some(
+    (h) =>
+      h.status === 'pending' ||
+      (h.status === 'active' && (!h.ends_at || new Date(h.ends_at).getTime() > now))
+  );
+
+  // current: destaque ATIVO vigente — prioriza o estado consolidado no produto.
   let current = null;
-  const now = Date.now();
+  let activeRow = rows.find(
+    (h) => h.status === 'active' && (!h.ends_at || new Date(h.ends_at).getTime() > now)
+  );
   if (
+    !activeRow &&
     product.highlight_tier &&
     product.highlight_tier !== 'none' &&
     (!product.highlight_expires_at || new Date(product.highlight_expires_at).getTime() > now)
   ) {
-    current = { tier: product.highlight_tier, ends_at: product.highlight_expires_at };
-  } else {
-    const active = rows.find(
-      (h) => h.status === 'active' && (!h.ends_at || new Date(h.ends_at).getTime() > now)
-    );
-    if (active) current = { tier: active.tier, ends_at: active.ends_at };
+    // Sem linha ativa mas o produto está marcado como destacado.
+    current = {
+      id: null,
+      tier: product.highlight_tier,
+      status: 'active',
+      starts_at: null,
+      ends_at: product.highlight_expires_at,
+      ...remainingTime(product.highlight_expires_at, now),
+    };
+  } else if (activeRow) {
+    current = {
+      id: activeRow.id,
+      tier: activeRow.tier,
+      status: 'active',
+      starts_at: activeRow.starts_at,
+      ends_at: activeRow.ends_at,
+      ...remainingTime(activeRow.ends_at, now),
+    };
   }
 
-  return { current, history };
+  return { current, has_active_or_pending, history };
+}
+
+/** Tempo restante até ends_at: { days_left, hours_left }. */
+function remainingTime(endsAt, now) {
+  if (!endsAt) return { days_left: null, hours_left: null };
+  const ms = new Date(endsAt).getTime() - now;
+  if (ms <= 0) return { days_left: 0, hours_left: 0 };
+  return {
+    days_left: Math.floor(ms / (24 * 60 * 60 * 1000)),
+    hours_left: Math.floor(ms / (60 * 60 * 1000)),
+  };
 }
 
 /**
@@ -693,13 +845,25 @@ async function activateHighlight(ref) {
   const startsAt = new Date();
   const endsAt = new Date(startsAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
 
+  // Snapshot das métricas atuais do produto (fora da transação; contagem de vendas
+  // é só leitura/proxy e não deve abortar a ativação se falhar).
+  const salesAtStart = await _salesCount(highlight.product_id);
+
   return db.sequelize.transaction(async (transaction) => {
+    const product = await db.Product.findByPk(highlight.product_id, { transaction });
+
     await highlight.update(
-      { status: 'active', starts_at: startsAt, ends_at: endsAt },
+      {
+        status: 'active',
+        starts_at: startsAt,
+        ends_at: endsAt,
+        views_at_start: product ? Number(product.views_count || 0) : null,
+        favorites_at_start: product ? Number(product.favorites_count || 0) : null,
+        sales_at_start: salesAtStart,
+      },
       { transaction }
     );
 
-    const product = await db.Product.findByPk(highlight.product_id, { transaction });
     if (product) {
       await product.update(
         { highlight_tier: highlight.tier, highlight_expires_at: endsAt },
@@ -709,6 +873,106 @@ async function activateHighlight(ref) {
 
     return highlight;
   });
+}
+
+/** Extrai o Pix do retorno bruto do MP (point_of_interaction). */
+function pixFromMpPayment(mp) {
+  const td =
+    mp && mp.point_of_interaction && mp.point_of_interaction.transaction_data
+      ? mp.point_of_interaction.transaction_data
+      : null;
+  if (!td) return null;
+  if (!td.qr_code && !td.qr_code_base64) return null;
+  return { qr_code: td.qr_code || null, qr_code_base64: td.qr_code_base64 || null };
+}
+
+/**
+ * (Re)gera um Pix válido para um ProductHighlight PENDENTE do produto e o retorna.
+ * - Se o Payment já tem um Pix persistido/consultável, reaproveita.
+ * - Senão, consulta o MP por external_id (se houver) ou gera um novo Pix.
+ * - Persiste o qr_code/qr_code_base64 em Payment.payload.pix.
+ * Retorna { payment, pix: { qr_code, qr_code_base64 } }.
+ */
+async function payHighlight(productId, highlightId, user) {
+  const product = await loadOwned(productId, user.id, {
+    isAdmin: !!(user && (user.is_admin === true || user.admin_role)),
+  });
+
+  const highlight = await db.ProductHighlight.findOne({
+    where: { id: highlightId, product_id: product.id },
+    include: [{ model: db.Payment, as: 'payment' }],
+  });
+  if (!highlight) throw AppError.notFound('Destaque não encontrado.', 'HIGHLIGHT_NOT_FOUND');
+
+  const payment = highlight.payment;
+  if (!payment) throw AppError.notFound('Pagamento do destaque não encontrado.', 'PAYMENT_NOT_FOUND');
+
+  // Já pago / já ativo → erro claro.
+  if (PAID_STATUSES.includes(payment.status) || highlight.status === 'active') {
+    throw AppError.conflict('Este destaque já está pago.', 'HIGHLIGHT_ALREADY_PAID');
+  }
+  if (highlight.status !== 'pending') {
+    throw AppError.unprocessable(
+      'Só é possível pagar um destaque pendente.',
+      'HIGHLIGHT_NOT_PENDING'
+    );
+  }
+
+  // 1) Pix já persistido no payload? Reaproveita.
+  let pix = pixFromPayment(payment);
+
+  // 2) Senão, tenta consultar o pagamento existente no MP (por external_id).
+  if (!pix && payment.external_id) {
+    try {
+      const mp = await mercadopago.getPayment(payment.external_id);
+      // Se o MP já marcou como aprovado, reflete e ativa.
+      if (mp && APPROVED_STATUSES.has(mp.status)) {
+        await payment.update({ status: 'approved', paid_at: new Date(), payload: mp });
+        try {
+          await activateHighlight(highlight.id);
+        } catch (err) {
+          logger.error('product.service.payHighlight: falha ao ativar após approved no MP:', err.message);
+        }
+        throw AppError.conflict('Este destaque já está pago.', 'HIGHLIGHT_ALREADY_PAID');
+      }
+      pix = pixFromMpPayment(mp);
+      if (pix) {
+        await payment.update({ payload: { ...(payment.payload || {}), ...mp, pix } });
+      }
+    } catch (err) {
+      if (err instanceof AppError && err.code === 'HIGHLIGHT_ALREADY_PAID') throw err;
+      logger.error('product.service.payHighlight: falha ao consultar pagamento no MP:', err.message);
+    }
+  }
+
+  // 3) Ainda sem Pix → gera um novo no MP com o mesmo valor/descrição.
+  if (!pix) {
+    const dbUser = await db.User.findByPk(payment.user_id);
+    let mp = null;
+    try {
+      mp = await mercadopago.createPixPayment({
+        amount: Number(payment.amount),
+        description: `Destaque ${highlight.tier}`,
+        payerEmail: dbUser ? dbUser.email : undefined,
+        externalReference: payment.id,
+      });
+    } catch (err) {
+      if (err && err.statusCode === 503) {
+        throw AppError.conflict(
+          'Gateway de pagamento não configurado.',
+          'GATEWAY_NOT_CONFIGURED'
+        );
+      }
+      throw err;
+    }
+    pix = pixFromMpPayment(mp);
+    await payment.update({
+      external_id: mp && mp.id != null ? String(mp.id) : payment.external_id,
+      payload: { ...(payment.payload || {}), ...mp, ...(pix ? { pix } : {}) },
+    });
+  }
+
+  return { payment, pix: pix || null };
 }
 
 module.exports = {
@@ -722,6 +986,7 @@ module.exports = {
   setStatus,
   remove,
   purchaseHighlight,
+  payHighlight,
   activateHighlight,
   listHighlightPackages,
   listHighlights,
