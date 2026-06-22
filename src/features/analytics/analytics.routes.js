@@ -11,5 +11,6 @@ const router = Router();
 router.get('/overview', auth, authorize('analytics.view'), controller.overview); // ?period=7|30|90
 router.get('/system', auth, authorize('analytics.view'), controller.systemHealth);
 router.get('/dashboard', auth, authorize('analytics.view'), controller.dashboard);
+router.get('/traffic', auth, authorize('analytics.view'), controller.traffic);
 
 module.exports = router;

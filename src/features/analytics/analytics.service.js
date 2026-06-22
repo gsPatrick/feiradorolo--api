@@ -221,4 +221,88 @@ async function dashboard() {
   };
 }
 
-module.exports = { overview, systemHealth, dashboard };
+/** YYYY-MM-DD (horário do servidor). */
+function dayStr(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Tráfego: presença (online agora) + visitas por dia/semana/mês + série 14 dias.
+ * "online" = last_seen_at >= now - 5min. Visitantes = distinct session_id/dia.
+ */
+async function traffic() {
+  const now = new Date();
+  const onlineSince = new Date(now.getTime() - 5 * 60 * 1000);
+  const today = dayStr(now);
+  const weekAgo = dayStr(new Date(now.getTime() - 6 * 86400000)); // hoje + 6 dias antes = 7 dias
+  const monthStart = dayStr(new Date(now.getFullYear(), now.getMonth(), 1));
+  const seriesStart = dayStr(new Date(now.getTime() - 13 * 86400000)); // últimos 14 dias
+
+  const distinctSession = fn('COUNT', fn('DISTINCT', col('session_id')));
+  const distinctUser = fn('COUNT', fn('DISTINCT', col('user_id')));
+
+  const [onlineRow, usersRow, todayRow, weekRow, monthRow, seriesRows] = await Promise.all([
+    // online_now: distinct session_id com last_seen_at recente.
+    db.SiteSession.findOne({
+      attributes: [[distinctSession, 'c']],
+      where: { last_seen_at: { [Op.gte]: onlineSince } },
+      raw: true,
+    }),
+    // online_users: distinct user_id (logados) online agora.
+    db.SiteSession.findOne({
+      attributes: [[distinctUser, 'c']],
+      where: { last_seen_at: { [Op.gte]: onlineSince }, user_id: { [Op.ne]: null } },
+      raw: true,
+    }),
+    // visitors_today + page_hits_today (linhas do dia = sessão distinta/dia).
+    db.SiteSession.findOne({
+      attributes: [
+        [fn('COUNT', col('id')), 'visitors'],
+        [fn('COALESCE', fn('SUM', col('hits')), 0), 'hits'],
+      ],
+      where: { day: today },
+      raw: true,
+    }),
+    // visitors_week: distinct session_id nos últimos 7 dias.
+    db.SiteSession.findOne({
+      attributes: [[distinctSession, 'c']],
+      where: { day: { [Op.gte]: weekAgo } },
+      raw: true,
+    }),
+    // visitors_month: distinct session_id no mês corrente.
+    db.SiteSession.findOne({
+      attributes: [[distinctSession, 'c']],
+      where: { day: { [Op.gte]: monthStart } },
+      raw: true,
+    }),
+    // série últimos 14 dias: visitantes (sessões distintas) por dia.
+    db.SiteSession.findAll({
+      attributes: ['day', [distinctSession, 'visitors']],
+      where: { day: { [Op.gte]: seriesStart } },
+      group: ['day'],
+      order: [['day', 'ASC']],
+      raw: true,
+    }),
+  ]);
+
+  // Preenche os 14 dias (inclui dias sem visitas com 0).
+  const byDay = {};
+  seriesRows.forEach((r) => { byDay[r.day] = N(r.visitors); });
+  const series = [];
+  for (let i = 13; i >= 0; i -= 1) {
+    const d = dayStr(new Date(now.getTime() - i * 86400000));
+    series.push({ date: d, visitors: byDay[d] || 0 });
+  }
+
+  return {
+    online_now: N(onlineRow?.c),
+    online_users: N(usersRow?.c),
+    visitors_today: N(todayRow?.visitors),
+    visitors_week: N(weekRow?.c),
+    visitors_month: N(monthRow?.c),
+    page_hits_today: N(todayRow?.hits),
+    series,
+  };
+}
+
+module.exports = { overview, systemHealth, dashboard, traffic };

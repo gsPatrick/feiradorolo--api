@@ -526,7 +526,25 @@ async function buildSpecsList(product) {
     return a._index - b._index;
   });
 
-  return items.map(({ key, label, value }) => ({ key, label, value }));
+  const list = items.map(({ key, label, value }) => ({ key, label, value }));
+
+  // Especificações PERSONALIZADAS do vendedor (metadata.custom_specs): cada
+  // { label, value } digitado livremente é anexado ao FIM da ficha técnica,
+  // depois dos campos da categoria. Itens sem label/value são ignorados.
+  const custom = product && product.metadata && product.metadata.custom_specs;
+  if (Array.isArray(custom)) {
+    let ci = 0;
+    for (const spec of custom) {
+      if (!spec || typeof spec !== 'object') continue;
+      const label = String(spec.label == null ? '' : spec.label).trim();
+      const value = String(spec.value == null ? '' : spec.value).trim();
+      if (!label || !value) continue;
+      list.push({ key: `custom_${ci}`, label, value, custom: true });
+      ci += 1;
+    }
+  }
+
+  return list;
 }
 
 /** Detalhe por id; incrementa views_count quando acesso público (`incrementViews`). */
