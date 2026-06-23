@@ -4,12 +4,18 @@
  * Serviço de usuários: listagem/busca, perfil, RBAC (atribuir/remover papéis),
  * banimentos e verificação facial (KYC) para vendedor e comprador.
  */
+const crypto = require('crypto');
 const { Op } = require('sequelize');
 const db = require('../../models');
 const AppError = require('../../utils/AppError');
 const validators = require('../../utils/validators');
 const permissionService = require('../../services/permission.service');
 const receitaws = require('../../providers/receitaws/receitaws.provider');
+const settings = require('../../services/settings.cache');
+const { onlyDigits, isValidCPF, isValidCNPJ } = require('../../utils/document');
+
+// Sessão de verificação facial (QR): validade do token gerado para o app.
+const FACIAL_SESSION_TTL_MS = 10 * 60 * 1000; // 10 min
 
 const PROFILE_FIELDS = [
   'name',
@@ -429,30 +435,187 @@ async function validateSellerDocument(userId) {
 
 /* ------------------------------- KYC / facial ----------------------------- */
 
-async function submitVerification(userId, { context, selfie_url, document_url } = {}) {
+/**
+ * Submete a verificação (KYC) do vendedor/comprador.
+ *
+ * Compatível com a chamada antiga `{ context, selfie_url, document_url }` e
+ * estendido para o passo 3 do wizard de vendedor (Shopee-like), que envia os
+ * dados de identificação fiscal + documentos:
+ *   { context:'seller', person_type:'PF'|'PJ', full_name, nationality,
+ *     document, birth_date, document_front_url, document_back_url }
+ *
+ * Todos os campos novos são OPCIONAIS — valida apenas o que vier:
+ * - full_name → User.name (apenas se ainda vazio).
+ * - person_type 'PF'/'PJ' (ou 'individual'/'company') → User.person_type.
+ * - document → cpf/cnpj conforme person_type (validado por isValidCPF/isValidCNPJ;
+ *   documento inválido derruba com AppError claro).
+ * - birth_date → User.birth_date.
+ * - nationality + URLs dos documentos → User.metadata.kyc (auditoria).
+ * Cria/atualiza um FacialVerification (status 'pending') com os documentos e
+ * marca seller/buyer_verification_status = 'pending' (em revisão).
+ */
+async function submitVerification(userId, data = {}) {
+  const {
+    context,
+    selfie_url,
+    document_url,
+    person_type,
+    full_name,
+    nationality,
+    document,
+    birth_date,
+    document_front_url,
+    document_back_url,
+  } = data;
+
   if (!VERIFICATION_CONTEXTS.includes(context)) {
     throw AppError.unprocessable("context deve ser 'seller' ou 'buyer'.", 'INVALID_CONTEXT');
   }
   const user = await db.User.findByPk(userId);
   if (!user) throw AppError.notFound('Usuário não encontrado.');
 
+  // Normaliza person_type aceitando os rótulos do wizard (PF/PJ) e os do model.
+  let normalizedPersonType = null;
+  if (person_type != null && person_type !== '') {
+    const pt = String(person_type).trim().toUpperCase();
+    if (pt === 'PF' || pt === 'INDIVIDUAL') normalizedPersonType = 'individual';
+    else if (pt === 'PJ' || pt === 'COMPANY') normalizedPersonType = 'company';
+    else {
+      throw AppError.unprocessable(
+        "person_type deve ser 'PF'/'PJ' (ou 'individual'/'company').",
+        'INVALID_PERSON_TYPE'
+      );
+    }
+  }
+
+  // Tipo efetivo para validar o documento: o enviado, senão o atual do usuário.
+  const effectivePersonType = normalizedPersonType || user.person_type || 'individual';
+
+  // Documento (CPF/CNPJ): valida conforme o person_type efetivo.
+  let documentDigits = null;
+  if (document != null && document !== '') {
+    documentDigits = onlyDigits(document);
+    if (effectivePersonType === 'company') {
+      if (!isValidCNPJ(documentDigits)) {
+        throw AppError.unprocessable('CNPJ inválido.', 'INVALID_CNPJ');
+      }
+    } else if (!isValidCPF(documentDigits)) {
+      throw AppError.unprocessable('CPF inválido.', 'INVALID_CPF');
+    }
+  }
+
+  const userUpdates = {};
+  if (normalizedPersonType) userUpdates.person_type = normalizedPersonType;
+  if (full_name && !String(user.name || '').trim()) {
+    userUpdates.name = String(full_name).trim();
+  }
+  if (documentDigits) {
+    if (effectivePersonType === 'company') userUpdates.cnpj = documentDigits;
+    else userUpdates.cpf = documentDigits;
+  }
+  if (birth_date) userUpdates.birth_date = birth_date;
+
+  // nationality + URLs dos documentos ficam em metadata.kyc (auditoria/revisão).
+  const kyc = { ...((user.metadata && user.metadata.kyc) || {}) };
+  if (nationality != null && nationality !== '') kyc.nationality = nationality;
+  if (full_name) kyc.full_name = String(full_name).trim();
+  if (document_front_url) kyc.document_front_url = document_front_url;
+  if (document_back_url) kyc.document_back_url = document_back_url;
+  kyc.submitted_at = new Date().toISOString();
+
   const record = await db.sequelize.transaction(async (transaction) => {
+    // Documento principal exibido na revisão: front, senão o legado document_url.
     const created = await db.FacialVerification.create(
       {
         user_id: userId,
         context,
         status: 'pending',
         selfie_url: selfie_url || null,
-        document_url: document_url || null,
+        document_url: document_url || document_front_url || null,
+        metadata: {
+          person_type: effectivePersonType,
+          document_front_url: document_front_url || null,
+          document_back_url: document_back_url || null,
+          nationality: nationality || null,
+        },
       },
       { transaction }
     );
-    user[`${context}_verification_status`] = 'pending';
-    await user.save({ transaction });
+
+    Object.assign(userUpdates, {
+      metadata: { ...(user.metadata || {}), kyc },
+    });
+    userUpdates[`${context}_verification_status`] = 'pending';
+    await user.update(userUpdates, { transaction });
     return created;
   });
 
   return record;
+}
+
+/* ---------------------- Sessão de verificação facial (QR) ------------------ */
+
+/** Monta a URL pública de captura facial a partir das configs do app. */
+async function facialCaptureUrl(token) {
+  const base =
+    (await settings.get('app.web_url', '')) ||
+    (await settings.get('app.public_url', '')) ||
+    'http://localhost:3000';
+  return `${String(base).replace(/\/+$/, '')}/verificacao-facial?token=${token}`;
+}
+
+/**
+ * Cria uma sessão de verificação facial (QR). Gera um token UUID com validade
+ * de 10 min e a URL pública que o app abrirá para a captura. A captura facial
+ * real fica a cargo do app — aqui apenas emitimos a sessão.
+ *
+ * O token/expiry são persistidos num FacialVerification em andamento
+ * (provider='facial-session', external_reference=token, expiry em metadata).
+ */
+async function createFacialSession(userId, { context = 'seller' } = {}) {
+  if (!VERIFICATION_CONTEXTS.includes(context)) {
+    throw AppError.unprocessable("context deve ser 'seller' ou 'buyer'.", 'INVALID_CONTEXT');
+  }
+  const user = await db.User.findByPk(userId);
+  if (!user) throw AppError.notFound('Usuário não encontrado.');
+
+  const token = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + FACIAL_SESSION_TTL_MS);
+
+  await db.FacialVerification.create({
+    user_id: userId,
+    context,
+    status: 'pending',
+    provider: 'facial-session',
+    external_reference: token,
+    metadata: { session: { token, expires_at: expiresAt.toISOString() } },
+  });
+
+  const url = await facialCaptureUrl(token);
+  return { token, url, expires_at: expiresAt.toISOString() };
+}
+
+/**
+ * Consulta o status de uma sessão facial pelo token:
+ * 'pending' | 'expired' (e o status do registro, caso já revisado).
+ */
+async function getFacialSession(userId, token) {
+  if (!token) throw AppError.unprocessable('token é obrigatório.', 'TOKEN_REQUIRED');
+  const record = await db.FacialVerification.findOne({
+    where: { user_id: userId, provider: 'facial-session', external_reference: token },
+    order: [['created_at', 'DESC']],
+  });
+  if (!record) throw AppError.notFound('Sessão de verificação não encontrada.', 'SESSION_NOT_FOUND');
+
+  const expiresAt =
+    record.metadata && record.metadata.session ? record.metadata.session.expires_at : null;
+  const expired = expiresAt ? new Date(expiresAt).getTime() < Date.now() : false;
+
+  return {
+    token,
+    status: expired && record.status === 'pending' ? 'expired' : record.status,
+    expires_at: expiresAt,
+  };
 }
 
 async function reviewVerification(verificationId, { status, rejection_reason } = {}, reviewerId) {
@@ -526,6 +689,8 @@ module.exports = {
   isShadowbanned,
   validateSellerDocument,
   submitVerification,
+  createFacialSession,
+  getFacialSession,
   reviewVerification,
   myVerifications,
   sanitize,

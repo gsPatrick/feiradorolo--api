@@ -13,6 +13,9 @@ router.patch('/me', auth, controller.updateMe);
 router.post('/me/validate-document', auth, controller.validateDocument);
 router.post('/me/verification', auth, controller.submitVerification);
 router.get('/me/verification', auth, controller.myVerifications);
+// Sessão de verificação facial (QR) — gera token/url (10min) para o app capturar.
+router.post('/me/verification/facial-session', auth, controller.createFacialSession);
+router.get('/me/verification/facial-session/:token', auth, controller.getFacialSession);
 
 // Revisão de verificação (admin/moderador).
 router.patch('/verification/:id/review', auth, authorize('users.verify'), controller.reviewVerification);

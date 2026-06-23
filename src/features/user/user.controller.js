@@ -91,6 +91,16 @@ const submitVerification = catchAsync(async (req, res) => {
   return sendCreated(res, record, 'Verificação enviada.');
 });
 
+const createFacialSession = catchAsync(async (req, res) => {
+  const session = await userService.createFacialSession(req.user.id, req.body || {});
+  return sendCreated(res, session, 'Sessão de verificação facial criada.');
+});
+
+const getFacialSession = catchAsync(async (req, res) => {
+  const session = await userService.getFacialSession(req.user.id, req.params.token);
+  return sendOk(res, session);
+});
+
 const myVerifications = catchAsync(async (req, res) => {
   const records = await userService.myVerifications(req.user.id);
   return sendOk(res, records);
@@ -118,6 +128,8 @@ module.exports = {
   bulkAdmin,
   validateDocument,
   submitVerification,
+  createFacialSession,
+  getFacialSession,
   myVerifications,
   reviewVerification,
 };
