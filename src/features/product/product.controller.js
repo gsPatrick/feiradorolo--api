@@ -15,6 +15,7 @@ const list = catchAsync(async (req, res) => {
     limit: req.query.limit,
     category_id: req.query.category_id,
     slug: req.query.slug,
+    category_slug: req.query.category_slug,
     seller_id: req.query.seller_id,
     status: req.query.status,
     q: req.query.q,
@@ -30,6 +31,12 @@ const list = catchAsync(async (req, res) => {
     radius: req.query.radius,
     facets: req.query.facets === '1' || req.query.facets === 'true',
   };
+
+  // Filtros por especificação (JSONB): qualquer query param `spec_<chave>` é
+  // repassado intacto ao serviço (ex.: spec_largura, spec_aro, spec_marca).
+  for (const [k, v] of Object.entries(req.query)) {
+    if (k.startsWith('spec_') && v != null && v !== '') params[k] = v;
+  }
 
   // Listagem pública: força apenas anúncios ativos a menos que seja admin.
   if (params.status && !isAdmin(req)) {

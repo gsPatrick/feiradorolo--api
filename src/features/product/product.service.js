@@ -344,12 +344,28 @@ async function list(params = {}) {
   const where = {};
   const and = [];
 
-  // Categoria por id ou slug.
+  // Categoria por id ou slug (aceita `slug` ou `category_slug` — alias do front).
   if (params.category_id) {
     where.category_id = params.category_id;
-  } else if (params.slug) {
-    const category = await db.Category.findOne({ where: { slug: params.slug } });
+  } else if (params.slug || params.category_slug) {
+    const slug = params.slug || params.category_slug;
+    const category = await db.Category.findOne({ where: { slug } });
     where.category_id = category ? category.id : '00000000-0000-0000-0000-000000000000';
+  }
+
+  // Filtros por especificação (JSONB): cada param `spec_<chave>` filtra produtos
+  // cujo specifications->>'<chave>' = valor. A chave é sanitizada para [a-z0-9_]
+  // (defesa contra injeção; o valor vai por bind/replacement do próprio Sequelize).
+  for (const [pk, pv] of Object.entries(params)) {
+    if (!pk.startsWith('spec_') || pv == null || pv === '') continue;
+    const key = String(pk.slice(5)).toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (!key) continue;
+    and.push(
+      db.sequelize.where(
+        db.sequelize.cast(db.sequelize.json(`specifications.${key}`), 'text'),
+        String(pv)
+      )
+    );
   }
 
   if (params.seller_id) where.seller_id = params.seller_id;
