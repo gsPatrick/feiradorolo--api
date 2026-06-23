@@ -1487,6 +1487,64 @@ async function payHighlight(productId, highlightId, user) {
 }
 
 /**
+ * Tempo médio (em horas) que o vendedor leva para POSTAR o produto após o
+ * pagamento. Calculado como média de (Shipment.posted_at − Order.paid_at) dos
+ * pedidos pagos do vendedor cujo envio já foi postado (status posted/in_transit/
+ * delivered, ou que tenham posted_at). Query agregada única (join Order→Shipment),
+ * sem N+1. Retorna { avg_ship_hours, avg_ship_days, shipped_orders } ou nulls.
+ */
+async function sellerShipTime(sellerId) {
+  if (!sellerId) return { avg_ship_hours: null, avg_ship_days: null, shipped_orders: 0 };
+
+  // Marco da postagem: posted_at quando existir, senão created_at do shipment.
+  // Identificadores quotados batem com o alias gerado pelo Sequelize ("shipments").
+  const POSTED = 'COALESCE("shipments"."posted_at", "shipments"."created_at")';
+  const diffHours = db.sequelize.literal(
+    `EXTRACT(EPOCH FROM (${POSTED} - "Order"."paid_at")) / 3600.0`
+  );
+
+  const row = await db.Order.findOne({
+    subQuery: false, // sem subquery: mantém "shipments" visível no SELECT agregado
+    attributes: [
+      [db.sequelize.fn('AVG', diffHours), 'avg_hours'],
+      [db.sequelize.fn('COUNT', db.sequelize.col('shipments.id')), 'cnt'],
+    ],
+    where: {
+      seller_id: sellerId,
+      payment_status: 'paid',
+      paid_at: { [Op.ne]: null },
+    },
+    include: [
+      {
+        model: db.Shipment,
+        as: 'shipments',
+        attributes: [],
+        required: true,
+        where: {
+          [Op.and]: [
+            { [Op.or]: [{ posted_at: { [Op.ne]: null } }, { status: { [Op.in]: ['posted', 'in_transit', 'delivered'] } }] },
+            db.sequelize.literal(`${POSTED} >= "Order"."paid_at"`),
+          ],
+        },
+      },
+    ],
+    group: [],
+    raw: true,
+  });
+
+  const cnt = row && row.cnt != null ? Number(row.cnt) : 0;
+  const avgHours = cnt > 0 && row.avg_hours != null ? Number(row.avg_hours) : null;
+  if (!cnt || avgHours == null || !Number.isFinite(avgHours)) {
+    return { avg_ship_hours: null, avg_ship_days: null, shipped_orders: cnt };
+  }
+  return {
+    avg_ship_hours: Math.round(avgHours * 10) / 10,
+    avg_ship_days: Math.round((avgHours / 24) * 10) / 10,
+    shipped_orders: cnt,
+  };
+}
+
+/**
  * Perfil público de reputação de um vendedor (fonte única para o selo de confiança).
  * Carrega o User por id e reaproveita sellerStats (agregados reais, sem N+1) +
  * buildSellerReputation/computeVerificationLevel para montar a saída.
@@ -1508,8 +1566,12 @@ async function getSellerProfile(userId) {
   });
   if (!seller) throw AppError.notFound('Usuário não encontrado.', 'USER_NOT_FOUND');
 
-  // Agregados reais (rating médio de reviews aprovadas, vendas pagas, anúncios ativos).
-  const statsMap = await sellerStats([seller.id]);
+  // Agregados reais (rating médio de reviews aprovadas, vendas pagas, anúncios ativos)
+  // + tempo médio de postagem (pagamento → envio postado). Em paralelo, sem N+1.
+  const [statsMap, shipTime] = await Promise.all([
+    sellerStats([seller.id]),
+    sellerShipTime(seller.id),
+  ]);
   const rep = buildSellerReputation(seller, statsMap.get(seller.id));
 
   return {
@@ -1529,6 +1591,9 @@ async function getSellerProfile(userId) {
     phone_verified: rep.phone_verified,
     document_verified: rep.document_verified,
     facial_verified: rep.facial_verified,
+    // Tempo médio de postagem após a compra (null se não houver dados suficientes).
+    avg_ship_hours: shipTime.avg_ship_hours,
+    avg_ship_days: shipTime.avg_ship_days,
   };
 }
 
@@ -1582,10 +1647,100 @@ async function bulkAdmin({ ids, action, payload } = {}) {
   return bulkApply(ids, fn);
 }
 
+/**
+ * Sugestões de busca (autocomplete) — público e leve.
+ * Com `q`: títulos de produtos ativos que casam (tolerante a acento, DISTINCT,
+ * ~8) + nomes de categorias que casam. Sem `q`: categorias populares / termos
+ * padrão (top por nº de anúncios ativos). Retorna [{ term }].
+ */
+async function suggestions(rawQ) {
+  const q = unaccent(rawQ);
+  const LIMIT = 8;
+  const out = [];
+  const seen = new Set();
+  const push = (term) => {
+    const t = String(term || '').trim();
+    if (!t) return;
+    const key = t.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ term: t });
+  };
+
+  if (q) {
+    // Categorias ativas cujo nome casa (mostradas primeiro como atalhos).
+    const cats = await db.Category.findAll({
+      where: db.sequelize.where(
+        db.sequelize.literal(
+          "translate(lower(name), 'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ', 'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC')"
+        ),
+        { [Op.iLike]: `%${q}%` }
+      ),
+      attributes: ['name'],
+      order: [['sort_order', 'ASC']],
+      limit: 4,
+      raw: true,
+    });
+    cats.forEach((c) => push(c.name));
+
+    // Títulos de produtos ativos que casam (DISTINCT, tolerante a acento).
+    const prods = await db.Product.findAll({
+      where: {
+        status: 'active',
+        [Op.and]: [
+          db.sequelize.where(db.sequelize.literal(TITLE_UNACCENT), { [Op.iLike]: `%${q}%` }),
+        ],
+      },
+      attributes: [[db.sequelize.fn('DISTINCT', db.sequelize.col('title')), 'title']],
+      order: [['title', 'ASC']],
+      limit: LIMIT,
+      raw: true,
+    });
+    prods.forEach((p) => push(p.title));
+  } else {
+    // Sem termo: categorias mais populares (mais anúncios ativos).
+    const popular = await db.Product.findAll({
+      where: { status: 'active' },
+      attributes: [
+        'category_id',
+        [db.sequelize.fn('COUNT', db.sequelize.col('id')), 'count'],
+      ],
+      group: ['category_id'],
+      order: [[db.sequelize.fn('COUNT', db.sequelize.col('id')), 'DESC']],
+      limit: LIMIT,
+      raw: true,
+    });
+    const ids = popular.map((r) => r.category_id).filter(Boolean);
+    if (ids.length) {
+      const cats = await db.Category.findAll({
+        where: { id: { [Op.in]: ids } },
+        attributes: ['id', 'name'],
+        raw: true,
+      });
+      const nameById = new Map(cats.map((c) => [c.id, c.name]));
+      popular.forEach((r) => push(nameById.get(r.category_id)));
+    }
+    // Fallback: se ainda não há nada, usa categorias ativas por ordem.
+    if (!out.length) {
+      const cats = await db.Category.findAll({
+        where: { is_active: true },
+        attributes: ['name'],
+        order: [['sort_order', 'ASC'], ['name', 'ASC']],
+        limit: LIMIT,
+        raw: true,
+      });
+      cats.forEach((c) => push(c.name));
+    }
+  }
+
+  return out.slice(0, LIMIT);
+}
+
 module.exports = {
   slugify,
   TIER_RANK,
   list,
+  suggestions,
   adminList,
   adminHighlight,
   bulkAdmin,

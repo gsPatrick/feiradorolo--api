@@ -48,6 +48,12 @@ const list = catchAsync(async (req, res) => {
   return paginated(res, rows, { page, limit, total });
 });
 
+// Autocomplete de busca (público, leve) → [{ term }].
+const suggestions = catchAsync(async (req, res) => {
+  const data = await service.suggestions(req.query.q);
+  return sendOk(res, data);
+});
+
 // Listagem ADMIN: todos os status/vendedores, com filtros via query.
 const adminList = catchAsync(async (req, res) => {
   const params = {
@@ -145,6 +151,7 @@ const listHighlights = catchAsync(async (req, res) => {
 
 module.exports = {
   list,
+  suggestions,
   adminList,
   adminHighlight,
   getById,

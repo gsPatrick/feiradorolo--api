@@ -14,6 +14,8 @@ const router = Router();
 
 // Públicas.
 router.get('/', optionalAuth, controller.list);
+// Autocomplete de busca (público, leve) — antes de '/:id'.
+router.get('/suggestions', controller.suggestions);
 // Catálogo público dos pacotes de destaque (antes de '/:id' para não ser capturado como id).
 router.get('/highlight-packages', controller.highlightPackages);
 // Listagem ADMIN (todos os status/vendedores) — antes de '/:id'.

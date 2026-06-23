@@ -193,6 +193,14 @@ async function listForUser(userId, { role = 'buyer', page = 1, limit = 20, statu
         // Inclui a imagem do produto para o front exibir na lista de pedidos.
         include: [{ model: db.Product, as: 'product', attributes: ['id', 'cover_image_url', 'images'], required: false }],
       },
+      // Inclui o envio (Shipment) para a lista exibir rastreio + status logístico
+      // sem abrir o detalhe. Só os campos necessários (evita payload pesado).
+      {
+        model: db.Shipment,
+        as: 'shipments',
+        attributes: ['id', 'tracking_code', 'service_name', 'status', 'label_url', 'posted_at', 'delivered_at', 'estimated_delivery_days'],
+        required: false,
+      },
     ],
     order: [['created_at', 'DESC']],
     limit: Number(limit),
