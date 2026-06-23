@@ -18,6 +18,8 @@ router.get('/', optionalAuth, controller.list);
 router.get('/highlight-packages', controller.highlightPackages);
 // Listagem ADMIN (todos os status/vendedores) — antes de '/:id'.
 router.get('/admin/all', auth, authorize('specifications.manage'), controller.adminList);
+// Ações em massa ADMIN (activate/deactivate/delete/boost) — antes de '/:id'.
+router.post('/admin/bulk', auth, authorize('specifications.manage'), controller.bulkAdmin);
 router.get('/:id', optionalAuth, controller.getById);
 
 // Histórico/status de destaque do produto (dono ou admin).

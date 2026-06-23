@@ -263,6 +263,71 @@ async function softDelete(userId, actorId) {
   return sanitize(user);
 }
 
+/* -------------------------------- bulk admin ----------------------------- */
+
+const BULK_MAX = 200;
+
+/**
+ * Aplica `fn(id)` para cada id isolando erros por item (try/catch). Não para no
+ * primeiro erro. Retorna { ok: <nº sucessos>, failed: [{ id, error }] }.
+ */
+async function bulkApply(ids, fn) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw AppError.unprocessable('ids deve ser um array não vazio.', 'BULK_IDS_REQUIRED');
+  }
+  if (ids.length > BULK_MAX) {
+    throw AppError.unprocessable(`Máximo de ${BULK_MAX} itens por lote.`, 'BULK_TOO_MANY');
+  }
+  let ok = 0;
+  const failed = [];
+  for (const id of ids) {
+    try {
+      await fn(id);
+      ok += 1;
+    } catch (err) {
+      failed.push({ id, error: err && err.message ? err.message : String(err) });
+    }
+  }
+  return { ok, failed };
+}
+
+/**
+ * Ações em massa de usuários (admin). Reaproveita os services existentes,
+ * isolando erros por id. As proteções (auto-ação e super-admin) já existem nos
+ * services destrutivos (suspend/softDelete via loadModerationTarget); aqui
+ * também barramos auto-ação para QUALQUER ação (o erro vira item em `failed`,
+ * sem derrubar o lote).
+ * action ∈ approve|suspend|ban|unban|delete|chat_only|remove_chat_only.
+ */
+async function bulkAdmin({ ids, action, payload } = {}, actorId) {
+  const handlers = {
+    approve: (id) => approve(id),
+    suspend: (id) => suspend(id, payload || {}, actorId),
+    ban: (id) => ban(id, payload || {}, actorId),
+    unban: (id) => unban(id),
+    delete: (id) => softDelete(id, actorId),
+    chat_only: (id) => setChatOnly(id, true),
+    remove_chat_only: (id) => setChatOnly(id, false),
+  };
+  const fn = handlers[action];
+  if (!fn) {
+    throw AppError.unprocessable(
+      `action inválida. Valores: ${Object.keys(handlers).join(', ')}.`,
+      'INVALID_BULK_ACTION'
+    );
+  }
+  return bulkApply(ids, (id) => {
+    // Proteção uniforme: nunca aplicar a ação na própria conta do ator.
+    if (actorId && String(actorId) === String(id)) {
+      throw AppError.forbidden(
+        'Você não pode aplicar esta ação na própria conta.',
+        'SELF_ACTION_FORBIDDEN'
+      );
+    }
+    return fn(id);
+  });
+}
+
 /* ----------------------------- Ban scopes / shadow ------------------------ */
 
 /**
@@ -455,6 +520,8 @@ module.exports = {
   suspend,
   setChatOnly,
   softDelete,
+  bulkAdmin,
+  bulkApply,
   getActiveBanScopes,
   isShadowbanned,
   validateSellerDocument,

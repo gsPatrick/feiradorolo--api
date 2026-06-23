@@ -121,6 +121,16 @@ const adminHighlight = catchAsync(async (req, res) => {
   return sendOk(res, data, 'Destaque atualizado pelo administrador.');
 });
 
+// Ações em massa (admin): activate|deactivate|delete|boost para vários ids.
+const bulkAdmin = catchAsync(async (req, res) => {
+  const result = await service.bulkAdmin({
+    ids: req.body.ids,
+    action: req.body.action,
+    payload: req.body.payload,
+  });
+  return sendOk(res, result, 'Ação em massa processada.');
+});
+
 // Catálogo público dos pacotes de destaque (preços/vigência reais).
 const highlightPackages = catchAsync(async (req, res) => {
   const data = await service.listHighlightPackages();
@@ -143,6 +153,7 @@ module.exports = {
   publish,
   setStatus,
   remove,
+  bulkAdmin,
   purchaseHighlight,
   payHighlight,
   highlightPackages,

@@ -72,6 +72,15 @@ const remove = catchAsync(async (req, res) => {
   return sendOk(res, user, 'Conta excluída.');
 });
 
+// Ações em massa (admin): approve|suspend|ban|unban|delete|chat_only|remove_chat_only.
+const bulkAdmin = catchAsync(async (req, res) => {
+  const result = await userService.bulkAdmin(
+    { ids: req.body.ids, action: req.body.action, payload: req.body.payload },
+    req.user.id
+  );
+  return sendOk(res, result, 'Ação em massa processada.');
+});
+
 const validateDocument = catchAsync(async (req, res) => {
   const result = await userService.validateSellerDocument(req.user.id);
   return sendOk(res, result, 'Documento validado.');
@@ -106,6 +115,7 @@ module.exports = {
   chatOnly,
   chatOnlyRemove,
   remove,
+  bulkAdmin,
   validateDocument,
   submitVerification,
   myVerifications,

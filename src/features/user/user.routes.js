@@ -21,6 +21,9 @@ router.patch('/verification/:id/review', auth, authorize('users.verify'), contro
 router.post('/:id/roles', auth, authorize('rbac.manage'), controller.assignRole);
 router.delete('/:id/roles/:slug', auth, authorize('rbac.manage'), controller.removeRole);
 
+// Ações em massa ADMIN (approve/suspend/ban/unban/delete/chat_only) — antes de '/:id'.
+router.post('/admin/bulk', auth, authorize('users.ban'), controller.bulkAdmin);
+
 // Banimentos.
 router.post('/:id/ban', auth, authorize('users.ban'), controller.ban);
 router.post('/:id/unban', auth, authorize('users.ban'), controller.unban);

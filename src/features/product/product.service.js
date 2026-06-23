@@ -1532,12 +1532,64 @@ async function getSellerProfile(userId) {
   };
 }
 
+/* -------------------------------- bulk admin ----------------------------- */
+
+const BULK_MAX = 200;
+
+/**
+ * Aplica `fn(id)` para cada id, isolando erros por item (try/catch).
+ * Não para no primeiro erro: acumula sucessos e falhas.
+ * Retorna { ok: <nº de sucessos>, failed: [{ id, error }] }.
+ */
+async function bulkApply(ids, fn) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw AppError.unprocessable('ids deve ser um array não vazio.', 'BULK_IDS_REQUIRED');
+  }
+  if (ids.length > BULK_MAX) {
+    throw AppError.unprocessable(`Máximo de ${BULK_MAX} itens por lote.`, 'BULK_TOO_MANY');
+  }
+  let ok = 0;
+  const failed = [];
+  for (const id of ids) {
+    try {
+      await fn(id);
+      ok += 1;
+    } catch (err) {
+      failed.push({ id, error: err && err.message ? err.message : String(err) });
+    }
+  }
+  return { ok, failed };
+}
+
+/**
+ * Ações em massa de produtos (admin). Reaproveita os services existentes,
+ * isolando erros por id. action ∈ activate|deactivate|delete|boost.
+ */
+async function bulkAdmin({ ids, action, payload } = {}) {
+  const handlers = {
+    activate: (id) => setStatus(id, 'active'),
+    deactivate: (id) => setStatus(id, 'paused'),
+    delete: (id) => remove(id, null, { isAdmin: true }),
+    boost: (id) => adminHighlight(id, payload || {}),
+  };
+  const fn = handlers[action];
+  if (!fn) {
+    throw AppError.unprocessable(
+      `action inválida. Valores: ${Object.keys(handlers).join(', ')}.`,
+      'INVALID_BULK_ACTION'
+    );
+  }
+  return bulkApply(ids, fn);
+}
+
 module.exports = {
   slugify,
   TIER_RANK,
   list,
   adminList,
   adminHighlight,
+  bulkAdmin,
+  bulkApply,
   getById,
   getSellerProfile,
   create,
