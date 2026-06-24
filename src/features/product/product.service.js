@@ -389,6 +389,10 @@ async function list(params = {}) {
   }
   // Estado (UF).
   if (params.state) where.state = String(params.state).toUpperCase();
+  // Cidade (texto livre, casamento case/acento-tolerante via ILIKE).
+  if (params.city != null && String(params.city).trim()) {
+    and.push(db.sequelize.where(db.sequelize.col('Product.city'), { [Op.iLike]: String(params.city).trim() }));
+  }
 
   // Filtro geográfico por bounding box (lat/lng/radius em km).
   if (params.lat != null && params.lng != null && params.radius != null) {
