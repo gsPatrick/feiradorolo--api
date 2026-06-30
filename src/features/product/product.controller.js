@@ -26,6 +26,12 @@ const list = catchAsync(async (req, res) => {
     price_max: req.query.price_max,
     condition: req.query.condition,
     state: req.query.state,
+    city: req.query.city,
+    // Atalhos de faixa (veículos): ano e km. Faixas genéricas spec_<chave>_min/_max
+    // entram pelo loop abaixo (começam com 'spec_').
+    year_min: req.query.year_min,
+    year_max: req.query.year_max,
+    km_max: req.query.km_max,
     lat: req.query.lat,
     lng: req.query.lng,
     radius: req.query.radius,

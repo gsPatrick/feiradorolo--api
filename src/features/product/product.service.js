@@ -266,6 +266,70 @@ async function enrichProducts(rows) {
   return rows;
 }
 
+/* ------------------------------ contact_only ------------------------------ */
+/**
+ * Categorias com CategoryPricing.requires_plan=true (Imóveis/Veículos) são
+ * anúncios de CONTATO: negociação fora da plataforma (sem checkout/carrinho).
+ * Um produto é `contact_only` quando a sua categoria — OU qualquer ancestral —
+ * tem requires_plan=true. Uma única query de CategoryPricing sobre a cadeia.
+ */
+async function isContactOnly(categoryId) {
+  if (!categoryId) return false;
+  const chainIds = await categoryChainIds(categoryId);
+  if (!chainIds.length) return false;
+  const count = await db.CategoryPricing.count({
+    where: { category_id: { [Op.in]: chainIds }, requires_plan: true },
+  });
+  return count > 0;
+}
+
+/**
+ * Mapa category_id → boolean (contact_only) para um conjunto de categorias.
+ * Resolve cada categoria única uma só vez (cache por id; sem repetição de cadeia).
+ */
+async function contactOnlyByCategory(categoryIds) {
+  const ids = [...new Set((categoryIds || []).filter(Boolean))];
+  const map = new Map();
+  for (const cid of ids) map.set(cid, await isContactOnly(cid));
+  return map;
+}
+
+/**
+ * Aplica a flag `contact_only` aos produtos (Imóveis/Veículos = classificados).
+ * O contato NESTES anúncios é feito SEMPRE pelo chat da plataforma — o telefone
+ * do vendedor nunca é exposto. Aceita uma linha ou um array de instâncias
+ * Sequelize (mutação via setDataValue).
+ */
+async function applyContactOnly(rows) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  const products = list.filter(Boolean);
+  if (!products.length) return rows;
+
+  const coMap = await contactOnlyByCategory(products.map((p) => p.category_id));
+  for (const p of products) {
+    p.setDataValue('contact_only', !!coMap.get(p.category_id));
+  }
+  return rows;
+}
+
+/* ----------------------------- filtros de faixa --------------------------- */
+/**
+ * Condição de FAIXA sobre specifications (JSONB): compara
+ * CAST(specifications->>'<chave>' AS NUMERIC) com `value` usando `op` (>=, <=).
+ * - Sanitiza a chave para [a-z0-9_] e exige `value` numérico (ignora o resto).
+ * - Guarda contra valores não-numéricos/nulos no JSONB (regex antes do CAST),
+ *   evitando erro de cast que quebraria a query inteira.
+ * Retorna um literal seguro (chave sanitizada + número finito; sem injeção).
+ */
+function specRangeCondition(key, op, value) {
+  const k = String(key || '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+  if (!k) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  const guard = `(specifications->>'${k}') ~ '^-?[0-9]+(\\.[0-9]+)?$'`;
+  return db.sequelize.literal(`(${guard} AND CAST(specifications->>'${k}' AS NUMERIC) ${op} ${num})`);
+}
+
 /**
  * Listagem paginada de produtos.
  * Pública (sem status explícito) mostra apenas 'active'.
@@ -358,6 +422,8 @@ async function list(params = {}) {
   // (defesa contra injeção; o valor vai por bind/replacement do próprio Sequelize).
   for (const [pk, pv] of Object.entries(params)) {
     if (!pk.startsWith('spec_') || pv == null || pv === '') continue;
+    // _min/_max são filtros de FAIXA (tratados abaixo), não igualdade.
+    if (/_(min|max)$/.test(pk)) continue;
     const key = String(pk.slice(5)).toLowerCase().replace(/[^a-z0-9_]/g, '');
     if (!key) continue;
     and.push(
@@ -366,6 +432,30 @@ async function list(params = {}) {
         String(pv)
       )
     );
+  }
+
+  // Filtros de FAIXA sobre specifications (JSONB):
+  // - Atalhos de veículos: year_min/year_max → specifications.ano; km_max → specifications.km.
+  // - Genérico: spec_<chave>_min / spec_<chave>_max para qualquer chave numérica.
+  // Todos com cast seguro (guarda contra valor não-numérico) e combinados com os demais.
+  const rangeShortcuts = [
+    ['year_min', 'ano', '>='],
+    ['year_max', 'ano', '<='],
+    ['km_max', 'km', '<='],
+  ];
+  for (const [param, specKey, op] of rangeShortcuts) {
+    if (params[param] == null || params[param] === '') continue;
+    const cond = specRangeCondition(specKey, op, params[param]);
+    if (cond) and.push(cond);
+  }
+  for (const [pk, pv] of Object.entries(params)) {
+    if (pv == null || pv === '' || !pk.startsWith('spec_')) continue;
+    const mMin = pk.match(/^spec_(.+)_min$/);
+    const mMax = pk.match(/^spec_(.+)_max$/);
+    let cond = null;
+    if (mMin) cond = specRangeCondition(mMin[1], '>=', pv);
+    else if (mMax) cond = specRangeCondition(mMax[1], '<=', pv);
+    if (cond) and.push(cond);
   }
 
   if (params.seller_id) where.seller_id = params.seller_id;
@@ -420,6 +510,8 @@ async function list(params = {}) {
 
   // Enriquecimento com dados REAIS (rating/reviews_count/sold + reputação do vendedor).
   await enrichProducts(rows);
+  // Flag contact_only (Imóveis/Veículos) + telefone do vendedor quando aplicável.
+  await applyContactOnly(rows);
 
   let facets = null;
   if (params.facets) {
@@ -623,6 +715,9 @@ async function getById(id, { incrementViews = false, viewerId = null } = {}) {
   }
   // Enriquecimento com dados REAIS (rating/reviews_count/sold + reputação do vendedor).
   await enrichProducts(product);
+  // contact_only (categoria/ancestral com requires_plan) + telefone do vendedor
+  // exposto SOMENTE em anúncio de contato (classificados).
+  await applyContactOnly(product);
 
   // specs_list: especificações rotuladas com os labels reais dos field_definitions
   // (mantém `specifications` cru para compatibilidade).
