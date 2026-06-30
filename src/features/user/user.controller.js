@@ -111,6 +111,12 @@ const reviewVerification = catchAsync(async (req, res) => {
   return sendOk(res, record, 'Verificação revisada.');
 });
 
+// Lista verificações (KYC) para revisão no admin (default: pendentes).
+const listVerifications = catchAsync(async (req, res) => {
+  const records = await userService.listVerifications({ status: req.query.status });
+  return sendOk(res, records);
+});
+
 module.exports = {
   list,
   getById,
@@ -131,5 +137,6 @@ module.exports = {
   createFacialSession,
   getFacialSession,
   myVerifications,
+  listVerifications,
   reviewVerification,
 };

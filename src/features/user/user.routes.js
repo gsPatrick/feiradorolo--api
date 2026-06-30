@@ -18,6 +18,8 @@ router.post('/me/verification/facial-session', auth, controller.createFacialSess
 router.get('/me/verification/facial-session/:token', auth, controller.getFacialSession);
 
 // Revisão de verificação (admin/moderador).
+// Lista (antes de '/:id' pra não ser capturada como id) + revisão.
+router.get('/verifications', auth, authorize('users.verify'), controller.listVerifications);
 router.patch('/verification/:id/review', auth, authorize('users.verify'), controller.reviewVerification);
 
 // Gestão de papéis (RBAC).

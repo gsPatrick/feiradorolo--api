@@ -671,6 +671,36 @@ async function myVerifications(userId) {
   });
 }
 
+/**
+ * Lista verificações (KYC) para revisão no admin. Por padrão as pendentes.
+ * Exclui os registros de SESSÃO facial (provider 'facial-session'), que são só
+ * tokens do QR e não submissões de documento.
+ */
+async function listVerifications({ status = 'pending' } = {}) {
+  const where = {
+    [Op.and]: [
+      status ? { status } : {},
+      { [Op.or]: [{ provider: { [Op.ne]: 'facial-session' } }, { provider: null }] },
+    ],
+  };
+  return db.FacialVerification.findAll({
+    where,
+    include: [
+      {
+        model: db.User,
+        as: 'user',
+        attributes: [
+          'id', 'name', 'email', 'person_type', 'cpf', 'cnpj', 'birth_date',
+          'email_verified_at', 'phone_verified_at', 'document_verified_at',
+          'seller_verification_status', 'metadata',
+        ],
+      },
+    ],
+    order: [['created_at', 'DESC']],
+    limit: 200,
+  });
+}
+
 module.exports = {
   list,
   getById,
@@ -693,5 +723,6 @@ module.exports = {
   getFacialSession,
   reviewVerification,
   myVerifications,
+  listVerifications,
   sanitize,
 };
