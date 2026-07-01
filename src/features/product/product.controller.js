@@ -25,6 +25,7 @@ const list = catchAsync(async (req, res) => {
     price_min: req.query.price_min,
     price_max: req.query.price_max,
     condition: req.query.condition,
+    inicial: req.query.inicial, // busca por letra inicial (footer SEO)
     state: req.query.state,
     city: req.query.city,
     // Atalhos de faixa (veículos): ano e km. Faixas genéricas spec_<chave>_min/_max

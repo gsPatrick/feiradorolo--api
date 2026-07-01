@@ -468,6 +468,13 @@ async function list(params = {}) {
     and.push(db.sequelize.where(db.sequelize.literal(TITLE_UNACCENT), { [Op.iLike]: `%${unaccent(term)}%` }));
   }
 
+  // Busca por letra inicial (footer SEO): título COMEÇA com a letra (A-Z),
+  // tolerante a acento. Sanitiza para um único caractere alfabético.
+  const inicial = String(params.inicial || '').trim().replace(/[^a-zA-Z]/g, '').slice(0, 1);
+  if (inicial) {
+    and.push(db.sequelize.where(db.sequelize.literal(TITLE_UNACCENT), { [Op.iLike]: `${unaccent(inicial)}%` }));
+  }
+
   // Faixa de preço (sobre o preço efetivo).
   if (params.price_min != null && params.price_min !== '') and.push(db.sequelize.where(PRICE_EXPR(), { [Op.gte]: Number(params.price_min) }));
   if (params.price_max != null && params.price_max !== '') and.push(db.sequelize.where(PRICE_EXPR(), { [Op.lte]: Number(params.price_max) }));
